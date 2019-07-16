@@ -104,6 +104,7 @@ from items import *
 from level import *
 from loading import *
 from misc import *
+from puzzle import MainWindow as PuzzleWindow
 from quickpaint import *
 import SarcLib
 import spritelib as SLib
@@ -114,7 +115,7 @@ from tileset import *
 from ui import *
 from verifications import *
 from widgets import *
-from ftp_config import *
+from ftpDialog import *
 
 
 def _excepthook(*exc_info):
@@ -184,6 +185,8 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         Editor window constructor
         """
         globals.Initializing = True
+
+        globals.ObjectAddedtoEmbedded = {1: {}}
 
         # Miyamoto Version number goes below here. 64 char max (32 if non-ascii).
         self.MiyamotoInfo = globals.MiyamotoID
@@ -417,10 +420,24 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         )
 
         self.CreateAction(
+            'changeobjpath', self.HandleChangeObjPath, GetIcon('folderpath'),
+            globals.trans.string('MenuItems', 132),
+            globals.trans.string('MenuItems', 133),
+            None,
+        )
+
+        self.CreateAction(
             'preferences', self.HandlePreferences, GetIcon('settings'),
             globals.trans.string('MenuItems', 18),
             globals.trans.string('MenuItems', 19),
             QtGui.QKeySequence('Ctrl+Alt+P'),
+        )
+
+        self.CreateAction(
+            'ftpconfig', self.HandleFtpConfig, GetIcon('settings'),
+            globals.trans.string('MenuItems', 146),
+            globals.trans.string('MenuItems', 146),
+            None,
         )
 
         self.CreateAction(
@@ -722,6 +739,35 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             None, True,
         )
 
+        # Tilesets
+        self.CreateAction(
+            'editslot1', self.EditSlot1, GetIcon('animation'),
+            globals.trans.string('MenuItems', 130),
+            globals.trans.string('MenuItems', 131),
+            None,
+        )
+
+        self.CreateAction(
+            'editslot2', self.EditSlot2, GetIcon('animation'),
+            globals.trans.string('MenuItems', 142, '[slot]', '2'),
+            globals.trans.string('MenuItems', 143, '[slot]', '2'),
+            None,
+        )
+
+        self.CreateAction(
+            'editslot3', self.EditSlot3, GetIcon('animation'),
+            globals.trans.string('MenuItems', 142, '[slot]', '3'),
+            globals.trans.string('MenuItems', 143, '[slot]', '3'),
+            None,
+        )
+
+        self.CreateAction(
+            'editslot4', self.EditSlot4, GetIcon('animation'),
+            globals.trans.string('MenuItems', 142, '[slot]', '4'),
+            globals.trans.string('MenuItems', 143, '[slot]', '4'),
+            None,
+        )
+
         self.CreateAction(
             'overridetilesetsaving', self.HandleOverrideTilesetSaving, GetIcon('folderpath'),
             globals.trans.string('MenuItems', 140),
@@ -778,7 +824,9 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         fmenu.addAction(self.actions['changegamedef'])
         fmenu.addAction(self.actions['screenshot'])
         fmenu.addAction(self.actions['changegamepath'])
+        fmenu.addAction(self.actions['changeobjpath'])
         fmenu.addAction(self.actions['preferences'])
+        fmenu.addAction(self.actions['ftpconfig'])
         fmenu.addSeparator()
         fmenu.addAction(self.actions['exit'])
 
@@ -842,6 +890,15 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         lmenu.addSeparator()
         lmenu.addAction(self.actions['overwritesprite'])
 
+        tmenu = menubar.addMenu(globals.trans.string('Menubar', 4))
+        tmenu.addAction(self.actions['editslot1'])
+        tmenu.addSeparator()
+        tmenu.addAction(self.actions['editslot2'])
+        tmenu.addAction(self.actions['editslot3'])
+        tmenu.addAction(self.actions['editslot4'])
+        tmenu.addSeparator()
+        tmenu.addAction(self.actions['overridetilesetsaving'])
+
         hmenu = menubar.addMenu(globals.trans.string('Menubar', 5))
         self.SetupHelpMenu(hmenu)
 
@@ -896,6 +953,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                 'metainfo',
                 'screenshot',
                 'changegamepath',
+                'changeobjpath',
                 'preferences',
                 'exit',
             ), (
@@ -1142,8 +1200,10 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         tabs.setTabToolTip(0, globals.trans.string('Palette', 13))
 
         self.objTS0Tab = QtWidgets.QWidget()
+        self.objTSAllTab = QtWidgets.QWidget()
         self.objTS123Tab = QtWidgets.QWidget()
         self.objAllTab.addTab(self.objTS0Tab, tsicon, 'Main')
+        self.objAllTab.addTab(self.objTSAllTab, tsicon, 'All')
         self.objAllTab.addTab(self.objTS123Tab, tsicon, 'Embedded')
 
         oel = QtWidgets.QVBoxLayout(self.objTS0Tab)
@@ -1170,16 +1230,52 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         lbg.buttonClicked[int].connect(self.LayerChoiceChanged)
         self.LayerButtonGroup = lbg
 
+        self.folderPicker = QtWidgets.QComboBox()
+
+        top_folder = setting('ObjPath')
+
+        if not (top_folder and os.path.isdir(top_folder)):
+            self.objAllTab.setTabEnabled(1, False)
+
+        else:
+            folders = os.listdir(top_folder)
+            folders.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split('(\d+)', s)])
+
+            folders_ = [folder for folder in folders if os.path.isdir(top_folder + "/" + folder)]
+            del folders
+
+            for i, folder in enumerate(folders_):
+                globals.ObjectAddedtoEmbedded[globals.CurrentArea][i] = {}
+                self.folderPicker.addItem(folder)
+
+        self.folderPicker.setVisible(False)
+        oel.addWidget(self.folderPicker, 1)
+
+        self.importObj = QtWidgets.QPushButton()
+        self.importObj.setText("Import")
+        self.importObj.clicked.connect(self.ImportObjFromFile)
+        self.importObj.setVisible(False)
+        oel.addWidget(self.importObj, 1)
+
         self.exportAll = QtWidgets.QPushButton()
         self.exportAll.setText("Export All")
         self.exportAll.clicked.connect(self.HandleExportAllObj)
         self.exportAll.setVisible(False)
         oel.addWidget(self.exportAll, 1)
 
+        self.deleteAll = QtWidgets.QPushButton()
+        self.deleteAll.setText("Delete All")
+        self.deleteAll.clicked.connect(self.HandleDeleteAllObj)
+        self.deleteAll.setVisible(False)
+        oel.addWidget(self.deleteAll, 1)
+
         self.objPicker = ObjectPickerWidget()
         self.objPicker.ObjChanged.connect(self.ObjectChoiceChanged)
         self.objPicker.ObjReplace.connect(self.ObjectReplace)
         oel.addWidget(self.objPicker, 1)
+
+        if top_folder and os.path.isdir(top_folder):
+            self.folderPicker.currentIndexChanged.connect(self.objPicker.mall.LoadFromFolder)
 
         # sprite tab
         self.sprAllTab = QtWidgets.QTabWidget()
@@ -1507,7 +1603,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         """
         Sets the window title accordingly
         """
-        self.setWindowTitle('You Make Good Level Now! - %s%s' % (
+        self.setWindowTitle('%s%s' % (
         self.fileTitle, (' ' + globals.trans.string('MainWindow', 0)) if globals.Dirty else ''))
 
     def CheckDirty(self):
@@ -2368,6 +2464,9 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         with open(self.fileSavePath, 'wb+') as f:
             f.write(globals.Level.saveNewArea(None, None, None, None))
 
+        if globals.CurrentArea in globals.ObjectAddedtoEmbedded:  # Should always be true
+            del globals.ObjectAddedtoEmbedded[globals.CurrentArea]
+
         self.LoadLevel(None, self.fileSavePath, True, 1)
 
     def HandleChangeGamePath(self, auto=False):
@@ -2394,6 +2493,35 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             self.LoadLevel(None, '1-1', False, 1, True)
 
         return True
+
+    def HandleChangeObjPath(self):
+        """
+        Change the Objects path used by "All" tab
+        """
+        path = QtWidgets.QFileDialog.getExistingDirectory(None,
+                                                          'Choose the folder containing Object folders')
+
+        if not path: return
+        if not isValidObjectsPath(path): return
+
+        setSetting('ObjPath', path)
+
+        if not self.objAllTab.isTabEnabled(1):
+            QtWidgets.QMessageBox.warning(None, 'Warning', 'A restart of Miyamoto is required for the All tab to be enabled!')
+
+        self.folderPicker.clear()
+
+        folders = os.listdir(path)
+        folders.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split('(\d+)', s)])
+
+        folders_ = [folder for folder in folders if os.path.isdir(path + "/" + folder)]
+        del folders
+
+        for i, folder in enumerate(folders_):
+            globals.ObjectAddedtoEmbedded[globals.CurrentArea][i] = {}
+            self.folderPicker.addItem(folder)
+
+        self.folderPicker.currentIndexChanged.connect(self.objPicker.mall.LoadFromFolder)
 
     def HandlePreferences(self):
         """
@@ -2432,6 +2560,13 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         # Warn the user that they may need to restart
         QtWidgets.QMessageBox.warning(None, globals.trans.string('PrefsDlg', 0), globals.trans.string('PrefsDlg', 30))
+
+    def HandleFtpConfig(self):
+        """
+        Edit FTP configuration
+        """
+        dlg = FtpDialog()
+        dlg.exec()
 
     def HandleNewLevel(self):
         """
@@ -2490,6 +2625,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         globals.Dirty = False
         globals.AutoSaveDirty = False
+        globals.TilesetEdited = False
         self.UpdateTitle()
 
         # setSetting('AutoSaveFilePath', self.fileSavePath)
@@ -2500,27 +2636,58 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         """
         Save a level back to an FTP server
         """
+
+        if not FtpDialog.checkShow():
+            return False
+
+        sendTilesets = globals.TilesetEdited or globals.OverrideTilesetSaving
+
         if not self.HandleSave():
             return False
 
         try:
-            ftp_session = ftplib.FTP()
-            ftp_session.connect(ftp_host, ftp_port)
-            print(ftp_session.getwelcome())
+            ftpSession = ftplib.FTP(timeout = int(setting('FtpTimeout')))
+            ftpSession.connect(setting('FtpHost'), int(setting('FtpPort')))
+            print(ftpSession.getwelcome())
 
-            ftp_session.login(ftp_usr, ftp_pwd)
+            ftpSession.login(setting('FtpUser'), setting('FtpPwd'))
 
-            ftp_session.cwd(ftp_romfs + 'Course')
+            # Save level file
+            ftpSession.cwd(setting('FtpRomfs') + 'Course')
+            levelFile = open(self.fileSavePath, 'rb')
+            ftpSession.storbinary('STOR %s' % self.fileTitle, levelFile)
+            levelFile.close()
 
-            level_file = open(self.fileSavePath, 'rb')
-            ftp_session.storbinary('STOR %s' % self.fileTitle, level_file)
+            # Save tileset files
+            if sendTilesets:
+                ftpSession.cwd(setting('FtpRomfs') + 'Unit')
 
-            ftp_session.quit()
+                # Find Unit folder
+                paths = reversed(globals.gamedef.GetGamePaths())
+                for path in paths:
+                    if not os.path.isdir(os.path.join(os.path.dirname(path), 'Unit')):
+                        continue
+
+                    # Unit folder found, send all used tilesets
+                    for tilesetName in [globals.Area.tileset1, globals.Area.tileset2, globals.Area.tileset3]:
+                        if not tilesetName:
+                            continue
+
+                        tilesetFilePath = os.path.join(os.path.dirname(path), 'Unit', tilesetName + '.szs')
+
+                        tilesetFile = open(tilesetFilePath, 'rb')
+                        ftpSession.storbinary('STOR %s.szs' % tilesetName, tilesetFile)
+                        tilesetFile.close()
+
+                    break
+
+            ftpSession.quit()
 
             return True
+
         except ftplib.all_errors:
             QtWidgets.QMessageBox.warning(None, globals.trans.string('FtpDlg', 0),
-                                                              globals.trans.string('FtpDlg', 1))
+                                                globals.trans.string('FtpDlg', 1))
             return False
 
     def HandleSaveNewArea(self, course, L0, L1, L2):
@@ -2546,6 +2713,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         globals.Dirty = False
         globals.AutoSaveDirty = False
+        globals.TilesetEdited = False
         self.UpdateTitle()
 
         # setSetting('AutoSaveFilePath', self.fileSavePath)
@@ -2573,6 +2741,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         globals.Dirty = False
         globals.AutoSaveDirty = False
+        globals.TilesetEdited = False
         self.UpdateTitle()
 
         self.RecentMenu.AddToList(self.fileSavePath)
@@ -3119,6 +3288,31 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         globals.Layer1Shown = True
         globals.Layer2Shown = True
         globals.CurrentArea = areaNum
+        globals.TilesetEdited = False
+
+        if loadLevel:
+            globals.ObjectAddedtoEmbedded = {}
+
+        if globals.CurrentArea not in globals.ObjectAddedtoEmbedded:
+            globals.ObjectAddedtoEmbedded[globals.CurrentArea] = {}
+
+            top_folder = setting('ObjPath')
+
+            if not (top_folder and os.path.isdir(top_folder)):
+                self.objAllTab.setTabEnabled(1, False)
+
+            else:
+                self.folderPicker.clear()
+
+                folders = os.listdir(top_folder)
+                folders.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split('(\d+)', s)])
+
+                folders_ = [folder for folder in folders if os.path.isdir(top_folder + "/" + folder)]
+                del folders
+
+                for i, folder in enumerate(folders_):
+                    globals.ObjectAddedtoEmbedded[globals.CurrentArea][i] = {}
+                    self.folderPicker.addItem(folder)
 
         globals.OverrideSnapping = True
 
@@ -3280,20 +3474,6 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             self.scene.addItem(location)
             location.UpdateListItem()
 
-        for path in globals.Area.paths:
-            path.positionChanged = self.HandlePathPosChange
-            path.listitem = ListWidgetItem_SortsByOther(path)
-            self.pathList.addItem(path.listitem)
-            self.scene.addItem(path)
-            path.UpdateListItem()
-
-        for path in globals.Area.nPaths:
-            path.positionChanged = self.HandlePathPosChange
-            path.listitem = ListWidgetItem_SortsByOther(path)
-            self.nabbitPathList.addItem(path.listitem)
-            self.scene.addItem(path)
-            path.UpdateListItem()
-
         for path in globals.Area.pathdata:
             peline = PathEditorLineItem(path['nodes'])
             path['peline'] = peline
@@ -3307,9 +3487,17 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             self.scene.addItem(peline)
 
         for path in globals.Area.paths:
+            path.positionChanged = self.HandlePathPosChange
+            path.listitem = ListWidgetItem_SortsByOther(path)
+            self.pathList.addItem(path.listitem)
+            self.scene.addItem(path)
             path.UpdateListItem()
 
         for path in globals.Area.nPaths:
+            path.positionChanged = self.HandlePathPosChange
+            path.listitem = ListWidgetItem_SortsByOther(path)
+            self.nabbitPathList.addItem(path.listitem)
+            self.scene.addItem(path)
             path.UpdateListItem()
 
         for com in globals.Area.comments:
@@ -3575,6 +3763,8 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         CPT = -1
         if idx == 0:  # objects
             CPT = self.objAllTab.currentIndex()
+            if CPT == 1:
+                CPT = 10 # "All" objects
         elif idx == 1:  # sprites
             if self.sprAllTab.currentIndex() != 1: CPT = 4
         elif idx == 2:
@@ -3598,14 +3788,27 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         Handles the selected slot tab in the object palette changing
         """
         if hasattr(self, 'objPicker'):
-            if nt in [0, 1]:
+            if nt >= 0 and nt <= 3:
                 self.objPicker.ShowTileset(nt)
                 if nt == 0:
                     self.objTS0Tab.setLayout(self.createObjectLayout)
+                    self.folderPicker.setVisible(False)
+                    self.importObj.setVisible(False)
                     self.exportAll.setVisible(False)
+                    self.deleteAll.setVisible(False)
+                elif nt == 1:
+                    self.objTSAllTab.setLayout(self.createObjectLayout)
+                    self.folderPicker.setVisible(True)
+                    self.importObj.setVisible(False)
+                    self.exportAll.setVisible(False)
+                    self.deleteAll.setVisible(False)
+                    nt = 10
                 else:
                     self.objTS123Tab.setLayout(self.createObjectLayout)
+                    self.folderPicker.setVisible(False)
+                    self.importObj.setVisible(True)
                     self.exportAll.setVisible(True)
+                    self.deleteAll.setVisible(True)
             self.defaultPropDock.setVisible(False)
         globals.CurrentPaintType = nt
 
@@ -3671,6 +3874,60 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             self.scene.update()
             SetDirty()
 
+    def ImportObjFromFile(self):
+        """
+        Handles importing an object
+        """
+        # Get the json file
+        file = QtWidgets.QFileDialog.getOpenFileName(self, "Open Object", '',
+                    "Object files (*.json)")[0]
+
+        if not file: return
+
+        with open(file) as inf:
+            jsonData = json.load(inf)
+
+        dir = os.path.dirname(file)
+
+        # Read the other files
+        with open(dir + "/" + jsonData["meta"], "rb") as inf:
+            indexfile = inf.read()
+
+        with open(dir + "/" + jsonData["objlyt"], "rb") as inf:
+            deffile = inf.read()
+
+        with open(dir + "/" + jsonData["colls"], "rb") as inf:
+            colls = inf.read()
+
+        # Get the object's definition
+        indexstruct = struct.Struct('>HBBH')
+
+        data = indexstruct.unpack_from(indexfile, 0)
+        obj = ObjectDef()
+        obj.width = data[1]
+        obj.height = data[2]
+
+        if "randLen" in jsonData:
+            obj.randByte = data[3]
+
+        else:
+            obj.randByte = 0
+
+        obj.load(deffile, 0)
+
+        # Get the image and normal map
+        img = QtGui.QPixmap(dir + "/" + jsonData["img"])
+        nml = QtGui.QPixmap(dir + "/" + jsonData["nml"])
+
+        # Add the object to one of the tilesets
+        paintType, objNum = addObjToTileset(obj, colls, img, nml)
+        SetDirty()
+
+        # Checks if the object fit in one of the tilesets
+        if paintType == 11:
+            # Throw a message that the object didn't fit
+            QtWidgets.QMessageBox.critical(None, 'Cannot Import', "There isn't enough room left for this object!")
+
     def HandleExportAllObj(self):
         """
         Handles exporting all the objects
@@ -3692,11 +3949,93 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
                 exportObject(name, baseName, idx, objNum)
 
+    def HandleDeleteAllObj(self):
+        """
+        Handles deleting all objects
+        """
+        dlgTxt = "Do you really want to delete all the objects?\nThis can't be undone!"
+        reply = QtWidgets.QMessageBox.question(self, 'Warning',
+                                               dlgTxt, QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No)
+
+        if reply == QtWidgets.QMessageBox.Yes:
+            instancesFound = False
+            noneRemoved = True
+
+            for idx in [1, 2, 3]:
+                if globals.ObjectDefinitions[idx] is None:
+                    continue
+
+                objNum = 0
+                while objNum < 256:
+                    if globals.ObjectDefinitions[idx][objNum] is None:
+                        break
+
+                    # Check if the object is deletable
+                    instanceFound = False
+
+                    ## Check if the object is in the scene
+                    for layer in globals.Area.layers:
+                        for obj in layer:
+                            if obj.tileset == idx and obj.type == objNum:
+                                if not instanceFound:
+                                    instanceFound = True
+
+                                if not instancesFound:
+                                    instancesFound = True
+
+                    ## Check if the object is used as a stamp
+                    for stamp in self.stampChooser.model.items:
+                        layers, _ = self.getEncodedObjects(stamp.MiyamotoClip)
+                        for layer in layers:
+                            for obj in layer:
+                                if obj.tileset == idx and obj.type == objNum:
+                                    if not instanceFound:
+                                        instanceFound = True
+
+                                    if not instancesFound:
+                                        instancesFound = True
+
+                    ## Check if the object is in the clipboard
+                    if self.clipboard is not None:
+                        if self.clipboard.startswith('MiyamotoClip|') and self.clipboard.endswith('|%'):
+                            layers, _ = self.getEncodedObjects(self.clipboard)
+                            for layer in layers:
+                                for obj in layer:
+                                    if obj.tileset == idx and obj.type == objNum:
+                                        if not instanceFound:
+                                            instanceFound = True
+
+                                        if not instancesFound:
+                                            instancesFound = True
+
+                    if instanceFound:
+                        objNum += 1
+                        continue
+
+                    DeleteObject(idx, objNum)
+
+                    if noneRemoved:
+                        noneRemoved = False
+
+            if not noneRemoved:
+                HandleTilesetEdited()
+
+                if not (globals.Area.tileset1 or globals.Area.tileset2 or globals.Area.tileset3):
+                    globals.CurrentObject = -1
+
+                self.scene.update()
+                SetDirty()
+
+            if instancesFound:
+                dlgTxt = "Some objects couldn't be deleted because either there are instances of them in the level scene, they are used as stamps or they are in the clipboard."
+
+                QtWidgets.QMessageBox.critical(self, 'Cannot Delete', dlgTxt)
+
     def ObjectChoiceChanged(self, type):
         """
         Handles a new object being chosen
         """
-        if globals.CurrentPaintType != 0:
+        if globals.CurrentPaintType not in [0, 10]:
             type += 1
             if type > globals.numObj[1]:
                 globals.CurrentPaintType = 3
@@ -3716,6 +4055,8 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         """
         Handles a new object being chosen to replace the selected objects
         """
+        if globals.CurrentPaintType == 10: return
+
         items = self.scene.selectedItems()
         type_obj = ObjectItem
         tileset = globals.CurrentPaintType
@@ -4624,6 +4965,126 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
             ScreenshotImage.save(fn, 'PNG', 50)
 
+    def showPuzzleWindow(self, name, data, slot, con=False):
+        pw = PuzzleWindow(name, data, slot, con, Qt.Dialog)
+        if pw.forceClose:
+            del pw
+
+        else:
+            pw.setWindowModality(Qt.ApplicationModal)
+            pw.setAttribute(Qt.WA_DeleteOnClose)
+            pw.show()
+
+    def EditSlot1(self):
+        """
+        Edits Slot 1 tileset
+        """
+        if platform.system() == 'Windows':
+            tile_path = globals.miyamoto_path + '/Tools'
+
+        elif platform.system() == 'Linux':
+            tile_path = globals.miyamoto_path + '/linuxTools'
+
+        else:
+            tile_path = globals.miyamoto_path + '/macTools'
+
+        paths = reversed(globals.gamedef.GetGamePaths()); found = False
+        for path in paths:
+            if path is None:
+                break
+
+            sarcname = os.path.join(os.path.dirname(path), 'Unit', globals.Area.tileset0 + '.szs')
+            if os.path.isfile(sarcname):
+                found = True
+                break
+
+        if found:
+            with open(sarcname, 'rb') as fileobj:
+                sarcdata = fileobj.read()
+
+            with open(tile_path + '/tmp.tmp', 'wb+') as fn:
+                fn.write(sarcdata)
+
+        else:
+            con_msg = "This Tileset doesn't exist, please select a one from the area settings."
+            warn = QtWidgets.QMessageBox(QtWidgets.QMessageBox.NoIcon, 'Message', con_msg)
+            warn.exec_()
+
+        self.showPuzzleWindow(globals.Area.tileset0, tile_path + '/tmp.tmp', '0')
+
+    def EditSlot2(self):
+        """
+        Edits Slot 2 tileset
+        """
+        return self.EditSlot2_4(1)
+
+    def EditSlot3(self):
+        """
+        Edits Slot 3 tileset
+        """
+        return self.EditSlot2_4(2)
+
+    def EditSlot4(self):
+        """
+        Edits Slot 4 tileset
+        """
+        return self.EditSlot2_4(3)
+
+    def EditSlot2_4(self, slot):
+        """
+        Edits Slot 2/3/4 tilesets
+        """
+        if globals.TilesetEdited:
+            warningBox = QtWidgets.QMessageBox(QtWidgets.QMessageBox.NoIcon, 'Warning',
+                                               'It seems like some changes where made to the Embedded tab!' \
+                                               '\nPlease save the level before editing slots 2/3/4.')
+            warningBox.exec_()
+            return
+
+        con = False
+
+        if platform.system() == 'Windows':
+            tile_path = globals.miyamoto_path + '/Tools'
+
+        elif platform.system() == 'Linux':
+            tile_path = globals.miyamoto_path + '/linuxTools'
+
+        else:
+            tile_path = globals.miyamoto_path + '/macTools'
+
+        tilesetName = eval('globals.Area.tileset%d' % slot)
+
+        paths = reversed(globals.gamedef.GetGamePaths()); found = False
+        for path in paths:
+            if path is None:
+                break
+
+            sarcname = os.path.join(os.path.dirname(path), 'Unit', tilesetName + '.szs')
+            if os.path.isfile(sarcname):
+                found = True
+                break
+
+        if found:
+            with open(sarcname, 'rb') as fileobj:
+                sarcdata = fileobj.read()
+
+            with open(tile_path + '/tmp.tmp', 'wb+') as fn:
+                fn.write(sarcdata)
+
+            sarcfile = tile_path + '/tmp.tmp'
+
+        else:
+            if not eval('globals.Area.tileset%d' % slot):
+                exec("globals.Area.tileset%d = generateTilesetNames()[%d]" % (slot, slot - 1))
+                con = True
+
+            sarcfile = 'None'
+
+        if not eval('globals.Area.tileset%d' % slot):
+            return
+
+        self.showPuzzleWindow(eval('globals.Area.tileset%d' % slot), sarcfile, str(slot), con)
+
 
 def main():
     """
@@ -4632,6 +5093,7 @@ def main():
 
     # create an application
     globals.app = QtWidgets.QApplication(sys.argv)
+    globals.app.setOverrideCursor(Qt.ArrowCursor)
 
     # load the settings
     globals.settings = QtCore.QSettings('Miyamoto', globals.MiyamotoVersion)
@@ -4701,7 +5163,7 @@ def main():
     globals.PathsShown = setting('ShowPaths', True)
 
     if globals.libyaz0_available:
-        globals.CompLevel = setting('CompLevel', 1)
+        globals.CompLevel = int(setting('CompLevel', 1))
 
     else:
         globals.CompLevel = 0
@@ -4723,9 +5185,20 @@ def main():
         SetGamePath(path)
         setSetting('GamePath', path)
 
-        themesPage = wizard.page(1)
+        objectsPathPage = wizard.page(1)
+        if objectsPathPage.isValid:
+            path = objectsPathPage.pathLineEdit.text()
+            setSetting('ObjPath', path)
+
+        else:
+            setSetting('ObjPath', None)
+
+        themesPage = wizard.page(2)
         setSetting('Theme', themesPage.themeBox.currentText())
         setSetting('uiStyle', themesPage.NonWinStyle.currentText())
+
+    elif not isValidObjectsPath():
+        setSetting('ObjPath', None)
 
     LoadTheme()
     SetAppStyle()
