@@ -313,7 +313,7 @@ class MiyamotoTranslation:
                 2: 'New Game Patch',
                 3: 'It appears that this is your first time using the game patch for [game]. Please select its Course folder so tilesets and levels can be loaded.',
                 4: 'Aborted Game Path Selection',
-                5: 'Since you did not select the stage folder for [game], stages and tilesets will not load correctly. You can try again by choosing Change Game Path while the [game] patch is loaded.',
+                5: 'Since you did not select the "Course" folder for [game], stages will not load correctly. You can try again by choosing Change Game Path while the [game] patch is loaded.',
                 6: 'New Game Patch',
                 7: 'You can change the game path for [game] at any time by choosing Change Game Path while the [game] patch is loaded.',
                 8: 'Loading sprite data...',
@@ -526,6 +526,10 @@ class MiyamotoTranslation:
                 144: 'Save Level to FTP server',
                 145: 'Saves the Level to an FTP server',
                 146: 'FTP Preferences...',
+                147: 'Raise to Top',
+                148: 'Raise selected objects to the front of all other objects in the scene.',
+                149: 'Lower to Bottom',
+                150: 'Lower selected objects behind all other objects in the scene.',
                 },
             'Objects': {
                 0: '[b]Tileset [tileset], object [obj]:[/b][br][width]x[height] on layer [layer]',
@@ -648,6 +652,7 @@ class MiyamotoTranslation:
                 40: '7',
                 41: '8',
                 42: '9: Best',
+                43: 'Split Embedded tab:',
                 },
             'QuickPaint': {
                 1: "WOAH! Watch out!",
@@ -952,7 +957,7 @@ class MiyamotoTranslation:
                 73: '[b]Lower Bounds 2:[/b][br]Unknown differences from the main lower bounds.',
                 74: 'Enable Scrolling vertically?',
                 75: '[b]Enable Scrolling vertically?:[/b][br]The level can\'t scroll vertically if this is not checked Seems to be always checked.',
-                76: 'Settings',
+                76: 'Flags',
                 77: (
                     'Start Zoomed Out:',
                     'Center Camera X-pos On Load:',
