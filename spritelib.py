@@ -236,7 +236,7 @@ class SpriteImage_Liquid(SpriteImage):
     """
     Modified image function to support liquids
     """
-    def __init__(self, parent, scale=3.75, image=None, offset=None):
+    def __init__(self, parent, scale=None, image=None, offset=None):
         super().__init__(parent, scale)
         self.image = image
         self.spritebox.shown = False
@@ -272,7 +272,7 @@ class SpriteImage_Static(SpriteImage):
     """
     A simple class for drawing a static sprite image
     """
-    def __init__(self, parent, scale=3.75, image=None, offset=None):
+    def __init__(self, parent, scale=None, image=None, offset=None):
         super().__init__(parent, scale)
         self.image = image
         self.spritebox.shown = False
@@ -307,12 +307,23 @@ class SpriteImage_Static(SpriteImage):
         painter.restore()
 
 
+class SpriteImage_MovementController(SpriteImage_Static):
+    """
+    A special class for movement controllers
+    """
+    def __init__(self, parent, scale=None, image=None):
+        super().__init__(parent, scale, image)
+
+    def getMovementID(self):
+        return self.parent.spritedata[10]
+
+
 class SpriteImage_StaticMultiple(SpriteImage_Static):
     """
     A class that acts like a SpriteImage_Static but lets you change
     the image with the dataChanged() function
     """
-    def __init__(self, parent, scale=1.5, image=None, offset=None):
+    def __init__(self, parent, scale=None, image=None, offset=None):
         super().__init__(parent, scale, image, offset)
     # no other changes needed yet
 
@@ -326,13 +337,15 @@ class Spritebox():
     """
     Contains size and other information for a spritebox
     """
-    def __init__(self, scale=1.5):
+    def __init__(self, scale=None):
         super().__init__()
         self.shown = True
         self.xOffset = 0
         self.yOffset = 0
         self.width = 16
         self.height = 16
+
+        if scale is None: scale = TileWidth / 16
         self.scale = scale
 
     # Offset property

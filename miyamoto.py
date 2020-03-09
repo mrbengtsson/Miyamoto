@@ -28,7 +28,7 @@
 ################################################################
 
 # Python version: sanity check
-minimum = 3.4
+minimum = 3.5
 import sys
 
 currentRunningVersion = sys.version_info.major + (.1 * sys.version_info.minor)
@@ -1197,6 +1197,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         # add tabs to it
         tabs = QtWidgets.QTabWidget()
+        tabs.setTabBar(IconsOnlyTabBar())
         tabs.setIconSize(QtCore.QSize(16, 16))
         tabs.currentChanged.connect(self.CreationTabChanged)
         dock.setWidget(tabs)
@@ -2990,10 +2991,10 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         Handle toggling of sprite images
         """
         globals.SpriteImagesShown = checked
-
         setSetting('ShowSpriteImages', globals.SpriteImagesShown)
 
         if globals.Area is not None:
+            globals.OverrideSnapping = True
             globals.DirtyOverride += 1
             for spr in globals.Area.sprites:
                 spr.UpdateRects()
@@ -3008,6 +3009,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                         spr.objy * (globals.TileWidth / 16),
                     )
             globals.DirtyOverride -= 1
+            globals.OverrideSnapping = False
 
         self.scene.update()
 
@@ -3456,6 +3458,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                     globals.ObjectAddedtoEmbedded[globals.CurrentArea][i] = {}
                     self.folderPicker.addItem(folder)
 
+        # Prevent things from snapping when they're created
         globals.OverrideSnapping = True
 
         # Load the actual level
@@ -3523,7 +3526,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         self.UpdateTitle()
 
         # Update UI things
-        self.scene.update()
+        self.scene.update(0, 0, self.scene.width(), self.scene.height())
 
         self.levelOverview.Reset()
         self.levelOverview.update()
@@ -3669,39 +3672,18 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
     def ReloadSpriteData(self):
         LoadSpriteData()
+        LoadSpriteListData(True)
+        LoadSpriteCategories(True)
 
-        for i in range(self.sprPicker.topLevelItemCount()):
-            cnode = self.sprPicker.topLevelItem(i)
-            for j in reversed(range(cnode.childCount())):
-                cnode.removeChild(cnode.child(j))
+        self.spriteViewPicker.clear()
+        for cat in globals.SpriteCategories:
+            self.spriteViewPicker.addItem(cat[0])
 
-            for _, view, _ in globals.SpriteCategories:
-                for catname, category in view:
-                    if catname != cnode.text(0):
-                        continue
+        self.sprPicker.LoadItems()
+        self.spriteViewPicker.setCurrentIndex(0)
+        self.spriteDataEditor.setSprite(self.spriteDataEditor.spritetype, True)
+        self.spriteDataEditor.update()
 
-                    isSearch = (catname == globals.trans.string('Sprites', 16))
-                    if isSearch:
-                        self.sprPicker.SearchResultsCategory = cnode
-                        SearchableItems = []
-
-                    for id in category:
-                        snode = QtWidgets.QTreeWidgetItem()
-                        if id == 9999:
-                            snode.setText(0, globals.trans.string('Sprites', 17))
-                            snode.setData(0, Qt.UserRole, -2)
-                            self.sprPicker.NoSpritesFound = snode
-                        else:
-                            snode.setText(0, globals.trans.string('Sprites', 18, '[id]', id, '[name]', globals.Sprites[id].name))
-                            snode.setData(0, Qt.UserRole, id)
-
-                        if isSearch:
-                            SearchableItems.append(snode)
-
-                        cnode.addChild(snode)
-
-        self.sprPicker.ShownSearchResults = SearchableItems
-        self.sprPicker.NoSpritesFound.setHidden(True)
         self.NewSearchTerm(self.spriteSearchTerm.text())
 
         for sprite in globals.Area.sprites:
@@ -4295,7 +4277,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         cat = globals.SpriteCategories[type]
         self.sprPicker.SwitchView(cat)
 
-        isSearch = (type == len(globals.SpriteCategories) - 1)
+        isSearch = (type == 0)
         layout = self.spriteSearchLayout
         layout.itemAt(0).widget().setVisible(isSearch)
         layout.itemAt(1).widget().setVisible(isSearch)
@@ -5147,14 +5129,15 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                     if tab.Zone_settings[i].isChecked():
                         z.type |= 1 << i
 
-                name = globals.names_bg[globals.names_bgTrans.index(str(bgTab.bg_name.currentText()))]
+                name = bgTab.bgFname.text()
                 unk1 = bgTab.unk1.value()
                 unk2 = bgTab.unk2.value()
                 unk3 = bgTab.unk3.value()
                 unk4 = bgTab.unk4.value()
                 z.background = (z.id, unk1, unk2, unk3, to_bytes(name, 16), unk4)
 
-                ygn2Used = name == "Yougan_2"
+                if not ygn2Used:
+                    ygn2Used = name == "Yougan_2"
 
             if ygn2Used:
                 QtWidgets.QMessageBox.information(None, globals.trans.string('BGDlg', 22),
@@ -5357,6 +5340,11 @@ def main():
     # create an application
     globals.app = QtWidgets.QApplication(sys.argv)
 
+    # go to the script path
+    path = globals.miyamoto_path
+    if path is not None:
+        os.chdir(path)
+
     # load the settings
     globals.settings = QtCore.QSettings('settings.ini', QtCore.QSettings.IniFormat)
 
@@ -5366,18 +5354,14 @@ def main():
         setSetting("MiyamotoVersion", globals.MiyamotoVersionFloat)
         setSetting('uiStyle', "Fusion")
 
-    if setting("MiyamotoVersion") < 27.0 or not setting("isDX"):
+    # 27.0 -> oldest version with settings.ini compatible with the current version
+    if setting("MiyamotoVersion") < 27.0 or setting("MiyamotoVersion") > globals.MiyamotoVersionFloat or not setting("isDX"):
         warningBox = QtWidgets.QMessageBox(QtWidgets.QMessageBox.NoIcon, 'Unsupported settings file', 'Your settings.ini file is unsupported. Please remove it and run Miyamoto DX again.')
         warningBox.exec_()
         sys.exit(1)
 
     # load the translation (needs to happen first)
     LoadTranslation()
-
-    # go to the script path
-    path = globals.miyamoto_path
-    if path is not None:
-        os.chdir(globals.miyamoto_path)
 
     # set the default theme, plus some other stuff too
     globals.theme = MiyamotoTheme()
@@ -5402,7 +5386,7 @@ def main():
     SLib.main()
 
     # Set the default window icon (used for random popups and stuff)
-    globals.app.setWindowIcon(GetIcon('miyamoto'))
+    globals.app.setWindowIcon(QtGui.QIcon('miyamotodata/icon.png'))
     globals.app.setApplicationDisplayName('Miyamoto! v%s' % globals.MiyamotoVersion)
 
     gt = setting('GridType')
