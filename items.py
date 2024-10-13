@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Miyamoto! Level Editor - New Super Mario Bros. U Level Editor
-# Copyright (C) 2009-2020 Treeki, Tempus, angelsl, JasonP27, Kinnay,
+# Copyright (C) 2009-2021 Treeki, Tempus, angelsl, JasonP27, Kinnay,
 # MalStar1000, RoadrunnerWMC, MrRean, Grop, AboodXD, Gota7, John10v10,
 # mrbengtsson
 
@@ -28,6 +28,7 @@
 ############ Imports ############
 
 import base64
+from math import copysign
 import random
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -39,6 +40,7 @@ if not hasattr(QtWidgets.QGraphicsItem, 'ItemSendsGeometryChanges'):
 
 import globals
 import spritelib as SLib
+#from sprites import SpriteImage_LiquidOrFog
 from tileset import RenderObject
 from ui import GetIcon
 from verifications import SetDirty
@@ -52,8 +54,6 @@ class LevelEditorItem(QtWidgets.QGraphicsItem):
     """
     positionChanged = None  # Callback: positionChanged(LevelEditorItem obj, int oldx, int oldy, int x, int y)
     autoPosChange = False
-    dragoffsetx = 0
-    dragoffsety = 0
     objx, objy = 0, 0
 
     def __init__(self):
@@ -64,64 +64,45 @@ class LevelEditorItem(QtWidgets.QGraphicsItem):
         self.setFlag(self.ItemSendsGeometryChanges, True)
 
     def __lt__(self, other):
-        if self.objx != other.objx:
-            return self.objx < other.objx
-        return self.objy < other.objy
+        return (self.objx, self.objy) < (other.objx, other.objy)
 
     def itemChange(self, change, value):
         """
         Makes sure positions don't go out of bounds and updates them as necessary
         """
 
-        tileWidthMult = globals.TileWidth / 16
         if change == QtWidgets.QGraphicsItem.ItemPositionChange:
-            # snap to 24x24
+            if self.scene() is None:
+                return value
+
+            tileWidthMult = globals.TileWidth / 16
+
+            # Snap to 1x1
             newpos = value
+            newpos.setX(int((newpos.x() + tileWidthMult / 2) / tileWidthMult) * tileWidthMult)
+            newpos.setY(int((newpos.y() + tileWidthMult / 2) / tileWidthMult) * tileWidthMult)
 
-            # snap even further if Alt isn't held
-            # but -only- if globals.OverrideSnapping is off
-            doSnap = False
-            if (not globals.OverrideSnapping) and (not self.autoPosChange):
-                doSnap = True
-
-            if hasattr(self, 'dragging') and self.dragging:
-                doSnap = False
-
-            if doSnap:
-                if self.scene() is None:
-                    objectsSelected = False
-                else:
-                    objectsSelected = any([isinstance(thing, ObjectItem) for thing in globals.mainWindow.CurrentSelection])
-                if QtWidgets.QApplication.keyboardModifiers() == Qt.AltModifier and not isinstance(self, LocationItem):
-                    # Alt is held; don't snap
-                    newpos.setX(int(int((newpos.x() + 0.75) / tileWidthMult) * tileWidthMult))
-                    newpos.setY(int(int((newpos.y() + 0.75) / tileWidthMult) * tileWidthMult))
-                elif not objectsSelected and self.isSelected() and len(globals.mainWindow.CurrentSelection) > 1:
-                    # Snap to 8x8, but with the dragoffsets
-                    dragoffsetx, dragoffsety = int(self.dragoffsetx), int(self.dragoffsety)
-                    if dragoffsetx < -(globals.TileWidth / 2): dragoffsetx += globals.TileWidth / 2
-                    if dragoffsety < -(globals.TileWidth / 2): dragoffsety += globals.TileWidth / 2
-                    if dragoffsetx == 0: dragoffsetx = -(globals.TileWidth / 2)
-                    if dragoffsety == 0: dragoffsety = -(globals.TileWidth / 2)
-                    referenceX = int(
-                        (newpos.x() + globals.TileWidth / 4 + globals.TileWidth / 2 + dragoffsetx) / (globals.TileWidth / 2)) * globals.TileWidth / 2
-                    referenceY = int(
-                        (newpos.y() + globals.TileWidth / 4 + globals.TileWidth / 2 + dragoffsety) / (globals.TileWidth / 2)) * globals.TileWidth / 2
-                    newpos.setX(referenceX - (globals.TileWidth / 2 + dragoffsetx))
-                    newpos.setY(referenceY - (globals.TileWidth / 2 + dragoffsety))
+            # Snap even further if Alt isn't held
+            if not (globals.OverrideSnapping or QtWidgets.QApplication.keyboardModifiers() == Qt.AltModifier or self.autoPosChange or hasattr(self, 'dragging') and self.dragging):
+                objectsSelected = any([isinstance(thing, ObjectItem) for thing in globals.mainWindow.CurrentSelection])
+                if not objectsSelected and self.isSelected() and len(globals.mainWindow.CurrentSelection) > 1:
+                    # Move in sync by snapping to block halves (8x8)
+                    old_x, old_y = self.objx * tileWidthMult, self.objy * tileWidthMult
+                    new_x, new_y = newpos.x(), newpos.y()
+                    delta_x, delta_y = new_x - old_x, new_y - old_y
+                    newpos.setX(old_x + int(copysign((abs(delta_x) + globals.TileWidth / 4) / (globals.TileWidth // 2), delta_x)) * (globals.TileWidth // 2))
+                    newpos.setY(old_y + int(copysign((abs(delta_y) + globals.TileWidth / 4) / (globals.TileWidth // 2), delta_y)) * (globals.TileWidth // 2))
                 elif objectsSelected and self.isSelected():
-                    # Objects are selected, too; move in sync by snapping to whole blocks
-                    dragoffsetx, dragoffsety = int(self.dragoffsetx), int(self.dragoffsety)
-                    if dragoffsetx == 0: dragoffsetx = -globals.TileWidth
-                    if dragoffsety == 0: dragoffsety = -globals.TileWidth
-                    referenceX = int((newpos.x() + globals.TileWidth / 2 + globals.TileWidth + dragoffsetx) / globals.TileWidth) * globals.TileWidth
-                    referenceY = int((newpos.y() + globals.TileWidth / 2 + globals.TileWidth + dragoffsety) / globals.TileWidth) * globals.TileWidth
-                    newpos.setX(referenceX - (globals.TileWidth + dragoffsetx))
-                    newpos.setY(referenceY - (globals.TileWidth + dragoffsety))
+                    # Objects are selected, too; move in sync by snapping to whole blocks (16x16)
+                    old_x, old_y = self.objx * tileWidthMult, self.objy * tileWidthMult
+                    new_x, new_y = newpos.x(), newpos.y()
+                    delta_x, delta_y = new_x - old_x, new_y - old_y
+                    newpos.setX(old_x + int(copysign((abs(delta_x) + (globals.TileWidth // 2)) / globals.TileWidth, delta_x)) * globals.TileWidth)
+                    newpos.setY(old_y + int(copysign((abs(delta_y) + (globals.TileWidth // 2)) / globals.TileWidth, delta_y)) * globals.TileWidth)
                 else:
                     # Snap to 8x8
-                    newpos.setX(int(int((newpos.x() + globals.TileWidth / 4) / (globals.TileWidth / 2)) * globals.TileWidth / 2))
-                    newpos.setY(int(int((newpos.y() + globals.TileWidth / 4) / (globals.TileWidth / 2)) * globals.TileWidth / 2))
+                    newpos.setX(int(int((newpos.x() + globals.TileWidth / 4) / (globals.TileWidth // 2)) * (globals.TileWidth // 2)))
+                    newpos.setY(int(int((newpos.y() + globals.TileWidth / 4) / (globals.TileWidth // 2)) * (globals.TileWidth // 2)))
 
             x = newpos.x()
             y = newpos.y()
@@ -136,14 +117,11 @@ class LevelEditorItem(QtWidgets.QGraphicsItem):
             x = int(newpos.x() / tileWidthMult)
             y = int(newpos.y() / tileWidthMult)
             if x != self.objx or y != self.objy:
-                updRect = QtCore.QRectF(
-                    self.x() + self.BoundingRect.x(),
-                    self.y() + self.BoundingRect.y(),
-                    self.BoundingRect.width(),
-                    self.BoundingRect.height(),
-                )
                 if self.scene() is not None:
-                    self.scene().update(updRect)
+                    self.scene().update(self.sceneBoundingRect())
+
+                if hasattr(self, 'LevelRect'):
+                    self.LevelRect.moveTo(x / 16, y / 16)
 
                 oldx = self.objx
                 oldy = self.objy
@@ -304,6 +282,9 @@ class ObjectItem(LevelEditorItem):
         self.setFlag(self.ItemIsMovable, not globals.ObjectsFrozen)
         self.setFlag(self.ItemIsSelectable, not globals.ObjectsFrozen)
         self.UpdateRects()
+
+        self.TLGrabbed = self.TRGrabbed = self.BLGrabbed = self.BRGrabbed = False
+        self.MTGrabbed = self.MLGrabbed = self.MBGrabbed = self.MRGrabbed = False
 
         self.dragging = False
         self.dragstartx = -1
@@ -508,6 +489,13 @@ class ObjectItem(LevelEditorItem):
             self.width, self.height = save
             return
 
+        self.objdata = self.objdata[:self.height]
+        for y in range(len(self.objdata)):
+            self.objdata[y] = self.objdata[y][:self.width]
+
+        self.height = len(self.objdata)
+        self.width = 0 if self.height == 0 else len(self.objdata[0])
+
         if width == self.width and height == self.height:
             return
 
@@ -570,10 +558,14 @@ class ObjectItem(LevelEditorItem):
             scene = self.scene()
             if scene is None: return value
 
-            # snap to 24x24
+            # Snap to whole blocks
             newpos = value
-            newpos.setX(int((newpos.x() + globals.TileWidth / 2) / globals.TileWidth) * globals.TileWidth)
-            newpos.setY(int((newpos.y() + globals.TileWidth / 2) / globals.TileWidth) * globals.TileWidth)
+            old_x, old_y = self.objx * globals.TileWidth, self.objy * globals.TileWidth
+            new_x, new_y = newpos.x(), newpos.y()
+            delta_x, delta_y = new_x - old_x, new_y - old_y
+            newpos.setX(old_x + int(copysign((abs(delta_x) + (globals.TileWidth // 2)) / globals.TileWidth, delta_x)) * globals.TileWidth)
+            newpos.setY(old_y + int(copysign((abs(delta_y) + (globals.TileWidth // 2)) / globals.TileWidth, delta_y)) * globals.TileWidth)
+
             x = newpos.x()
             y = newpos.y()
 
@@ -655,45 +647,50 @@ class ObjectItem(LevelEditorItem):
 
                 SetDirty()
 
-        self.TLGrabbed = self.GrabberRectTL.contains(event.pos())
-        self.TRGrabbed = self.GrabberRectTR.contains(event.pos())
-        self.BLGrabbed = self.GrabberRectBL.contains(event.pos())
-        self.BRGrabbed = self.GrabberRectBR.contains(event.pos())
-        self.MTGrabbed = self.GrabberRectMT.contains(event.pos())
-        self.MLGrabbed = self.GrabberRectML.contains(event.pos())
-        self.MBGrabbed = self.GrabberRectMB.contains(event.pos())
-        self.MRGrabbed = self.GrabberRectMR.contains(event.pos())
+            elif self.isSelected():
+                self.TLGrabbed = self.GrabberRectTL.contains(event.pos())
+                self.TRGrabbed = self.GrabberRectTR.contains(event.pos())
+                self.BLGrabbed = self.GrabberRectBL.contains(event.pos())
+                self.BRGrabbed = self.GrabberRectBR.contains(event.pos())
+                self.MTGrabbed = self.GrabberRectMT.contains(event.pos())
+                self.MLGrabbed = self.GrabberRectML.contains(event.pos())
+                self.MBGrabbed = self.GrabberRectMB.contains(event.pos())
+                self.MRGrabbed = self.GrabberRectMR.contains(event.pos())
 
-        if self.isSelected() and (
-            self.TLGrabbed
-            or self.TRGrabbed
-            or self.BLGrabbed
-            or self.BRGrabbed
-            or self.MTGrabbed
-            or self.MLGrabbed
-            or self.MBGrabbed
-            or self.MRGrabbed
-        ):
-            # start dragging
-            self.dragging = True
-            self.dragstartx = int((event.pos().x() - globals.TileWidth / 2) / globals.TileWidth)
-            self.dragstarty = int((event.pos().y() - globals.TileWidth / 2) / globals.TileWidth)
-            self.objsDragging = {}
+                if (
+                    self.TLGrabbed
+                    or self.TRGrabbed
+                    or self.BLGrabbed
+                    or self.BRGrabbed
+                    or self.MTGrabbed
+                    or self.MLGrabbed
+                    or self.MBGrabbed
+                    or self.MRGrabbed
+                ):
+                    # start dragging
+                    self.dragging = True
+                    self.dragstartx = int((event.pos().x() - globals.TileWidth // 2) / globals.TileWidth)
+                    self.dragstarty = int((event.pos().y() - globals.TileWidth // 2) / globals.TileWidth)
+                    self.objsDragging = {}
 
-            for selitem in globals.mainWindow.scene.selectedItems():
-                if not isinstance(selitem, ObjectItem):
-                    continue
+                    for selitem in globals.mainWindow.scene.selectedItems():
+                        if not isinstance(selitem, ObjectItem):
+                            continue
 
-                self.objsDragging[selitem] = [selitem.width, selitem.height]
+                        self.objsDragging[selitem] = [selitem.width, selitem.height]
 
-            event.accept()
+                    self.UpdateTooltip()
+                    self.update()
 
-        else:
-            LevelEditorItem.mousePressEvent(self, event)
-            self.dragging = False
-            self.objsDragging = {}
+                    event.accept()
+                    return
+
+        self.dragging = False
+        self.objsDragging = {}
+        LevelEditorItem.mousePressEvent(self, event)
 
         self.UpdateTooltip()
+        self.update()
 
     def UpdateObj(self, oldX, oldY):
         """
@@ -729,13 +726,13 @@ class ObjectItem(LevelEditorItem):
         """
         Overrides mouse movement events if needed for resizing
         """
-        if event.buttons() != Qt.NoButton and self.dragging:
+        if event.buttons() & QtCore.Qt.LeftButton and self.dragging:
             # resize it
             dsx = self.dragstartx
             dsy = self.dragstarty
 
-            clickedx = int((event.pos().x() - globals.TileWidth / 2) / globals.TileWidth)
-            clickedy = int((event.pos().y() - globals.TileWidth / 2) / globals.TileWidth)
+            clickedx = int((event.pos().x() - globals.TileWidth // 2) / globals.TileWidth)
+            clickedy = int((event.pos().y() - globals.TileWidth // 2) / globals.TileWidth)
 
             cx = self.objx
             cy = self.objy
@@ -983,8 +980,13 @@ class ObjectItem(LevelEditorItem):
         """
         Disables "dragging" when the mouse is released
         """
-        self.dragging = False
         LevelEditorItem.mouseReleaseEvent(self, event)
+        if event.button() == QtCore.Qt.LeftButton:
+            self.TLGrabbed = self.TRGrabbed = self.BLGrabbed = self.BRGrabbed = False
+            self.MTGrabbed = self.MLGrabbed = self.MBGrabbed = self.MRGrabbed = False
+            self.dragging = False
+
+            self.update()
 
     def delete(self):
         """
@@ -1000,7 +1002,7 @@ class ZoneItem(LevelEditorItem):
     Level editor item that represents a zone
     """
 
-    def __init__(self, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, bounding=None, bg=None, id=None):
+    def __init__(self, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, bounding=None, bg=None, id=None):
         """
         Creates a zone with specific data
         """
@@ -1016,15 +1018,19 @@ class ZoneItem(LevelEditorItem):
         self.modeldark = e
         self.terraindark = f
         self.id = g
-        self.block3id = h
+        #self.block3id = h
         self.cammode = i
         self.camzoom = j
-        self.visibility = k
-        self.block5id = l
-        self.camtrack = m
-        self.music = n
-        self.sfxmod = o
-        self.type = p
+        self.unk1 = k
+        self.visibility = l
+        #self.block5id = m
+        self.unk2 = n
+        self.camtrack = o
+        self.unk3 = p
+        self.music = q
+        self.sfxmod = r
+        #self.block6id = s
+        self.type = t
         self.UpdateRects()
 
         self.aux = set()
@@ -1040,14 +1046,18 @@ class ZoneItem(LevelEditorItem):
             self.yupperbound2 = bounding[2]
             self.ylowerbound2 = bounding[3]
             self.entryid = bounding[4]
-            self.unknownbnf = bounding[5]
+            self.mpcamzoomadjust = bounding[5]
+            self.yupperbound3 = bounding[6]
+            self.ylowerbound3 = bounding[7]
         else:
             self.yupperbound = 0
             self.ylowerbound = 0
             self.yupperbound2 = 0
             self.ylowerbound2 = 0
             self.entryid = 0
-            self.unknownbnf = 0
+            self.mpcamzoomadjust = 0xF
+            self.yupperbound3 = 0
+            self.ylowerbound3 = 0
 
         if bg is not None:
             self.background = bg
@@ -1070,6 +1080,9 @@ class ZoneItem(LevelEditorItem):
         """
         self.title = globals.trans.string('Zones', 0, '[num]', self.id + 1)
 
+    def __lt__(self, other):
+        return self.id < other.id
+
     def UpdateRects(self):
         """
         Updates the zone's bounding rectangle
@@ -1077,7 +1090,6 @@ class ZoneItem(LevelEditorItem):
         self.prepareGeometryChange()
         mult = globals.TileWidth / 16
         self.BoundingRect = QtCore.QRectF(0, 0, self.width * mult, self.height * mult)
-        self.ScalingRect = QtCore.QRectF(self.objx * mult, self.objy * mult, self.width * mult, self.height * mult)
         self.ZoneRect = QtCore.QRectF(self.objx, self.objy, self.width, self.height)
         self.DrawRect = QtCore.QRectF(3, 3, int(self.width * mult) - 6, int(self.height * mult) - 6)
 
@@ -1110,19 +1122,16 @@ class ZoneItem(LevelEditorItem):
 
         # Paint liquids/fog
         if globals.SpritesShown and globals.RealViewEnabled:
-            zoneRect = QtCore.QRectF(self.objx * globals.TileWidth / 16, self.objy * globals.TileWidth / 16, self.width * globals.TileWidth / 16, self.height * globals.TileWidth / 16)
-            viewRect = globals.mainWindow.view.mapToScene(globals.mainWindow.view.viewport().rect()).boundingRect()
+            zoneRect = self.sceneBoundingRect()
+            from sprites import SpriteImage_LiquidOrFog as liquidOrFogType
 
             for sprite in globals.Area.sprites:
-                if sprite.type in [88, 89, 90, 92, 198, 201]:
-                    spriteZoneID = SLib.MapPositionToZoneID(globals.Area.zones, sprite.objx, sprite.objy)
-
-                    if self.id == spriteZoneID:
-                        sprite.ImageObj.realViewZone(painter, zoneRect, viewRect)
+                if isinstance(sprite.ImageObj, liquidOrFogType) and sprite.ImageObj.paintZone() and self.id == sprite.ImageObj.zoneId:
+                    sprite.ImageObj.realViewZone(painter, zoneRect)
 
         # Now paint the borders
         painter.setPen(QtGui.QPen(globals.theme.color('zone_lines'), 3 * globals.TileWidth / 24))
-        if (self.visibility >= 32) and globals.RealViewEnabled:
+        if (self.visibility & 0x20) and globals.RealViewEnabled:
             painter.setBrush(QtGui.QBrush(globals.theme.color('zone_dark_fill')))
         painter.drawRect(self.DrawRect)
 
@@ -1146,6 +1155,9 @@ class ZoneItem(LevelEditorItem):
         """
         Overrides mouse pressing events if needed for resizing
         """
+
+        if event.button() != Qt.LeftButton:
+            return LevelEditorItem.mousePressEvent(self, event)
 
         if self.GrabberRectTL.contains(event.pos()):
             # start dragging
@@ -1199,8 +1211,7 @@ class ZoneItem(LevelEditorItem):
         """
         Overrides mouse movement events if needed for resizing
         """
-
-        if event.buttons() != Qt.NoButton and self.dragging:
+        if event.buttons() & QtCore.Qt.LeftButton and self.dragging:
             # resize it
             clickedx = int(event.scenePos().x() / globals.TileWidth * 16)
             clickedy = int(event.scenePos().y() / globals.TileWidth * 16)
@@ -1318,6 +1329,9 @@ class ZoneItem(LevelEditorItem):
             for a in self.aux:
                 a.zoneRepositioned()
 
+            for spr in globals.Area.sprites:
+                spr.ImageObj.positionChanged()
+
             SetDirty()
 
             event.accept()
@@ -1328,8 +1342,9 @@ class ZoneItem(LevelEditorItem):
         """
         Disables "dragging" when the mouse is released
         """
-        self.dragging = False
         LevelEditorItem.mouseReleaseEvent(self, event)
+        if event.button() == QtCore.Qt.LeftButton:
+            self.dragging = False
 
     def itemChange(self, change, value):
         """
@@ -1394,9 +1409,9 @@ class LocationItem(LevelEditorItem):
         """
         Updates the location's bounding rectangle
         """
+        if self.width < 8: self.width = 8
+        if self.height < 8: self.height = 8
         self.prepareGeometryChange()
-        if self.width == 0: self.width == 8
-        if self.height == 0: self.height == 8
         mult = globals.TileWidth / 16
 
         self.BoundingRect = QtCore.QRectF(0, 0, self.width * mult, self.height * mult)
@@ -1432,6 +1447,15 @@ class LocationItem(LevelEditorItem):
         """
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
 
+        # Paint liquids/fog
+        if globals.SpritesShown and globals.RealViewEnabled:
+            zoneRect = self.sceneBoundingRect()
+            from sprites import SpriteImage_LiquidOrFog as liquidOrFogType
+
+            for sprite in globals.Area.sprites:
+                if isinstance(sprite.ImageObj, liquidOrFogType) and self.id == sprite.ImageObj.locId:
+                    sprite.ImageObj.realViewLocation(painter, zoneRect)
+
         # Draw the purple rectangle
         if not self.isSelected():
             painter.setBrush(QtGui.QBrush(globals.theme.color('location_fill')))
@@ -1462,6 +1486,9 @@ class LocationItem(LevelEditorItem):
         """
         Overrides mouse pressing events if needed for resizing
         """
+
+        if event.button() != Qt.LeftButton:
+            return LevelEditorItem.mousePressEvent(self, event)
 
         if self.isSelected() and self.GrabberRectTL.contains(event.pos()):
             # start dragging
@@ -1515,8 +1542,7 @@ class LocationItem(LevelEditorItem):
         """
         Overrides mouse movement events if needed for resizing
         """
-
-        if event.buttons() != Qt.NoButton and self.dragging:
+        if event.buttons() & QtCore.Qt.LeftButton and self.dragging:
             # resize it
             clickedx = int(event.scenePos().x() / globals.TileWidth * 16)
             clickedy = int(event.scenePos().y() / globals.TileWidth * 16)
@@ -1641,8 +1667,9 @@ class LocationItem(LevelEditorItem):
         """
         Disables "dragging" when the mouse is released
         """
-        self.dragging = False
         LevelEditorItem.mouseReleaseEvent(self, event)
+        if event.button() == QtCore.Qt.LeftButton:
+            self.dragging = False
 
     def delete(self):
         """
@@ -1678,18 +1705,13 @@ class SpriteItem(LevelEditorItem):
         self.spritedata = data
         self.layer = layer
         self.initialState = initialState
+        self.zoneID = -1
         self.listitem = None
         self.LevelRect = QtCore.QRectF(self.objx / 16, self.objy / 16, globals.TileWidth / 16, globals.TileWidth / 16)
         self.ChangingPos = False
 
         SLib.SpriteImage.loadImages()
         self.ImageObj = SLib.SpriteImage(self)
-
-        try:
-            sname = globals.Sprites[type].name
-            self.name = sname
-        except:
-            self.name = 'UNKNOWN'
 
         self.InitializeSprite()
 
@@ -1699,13 +1721,13 @@ class SpriteItem(LevelEditorItem):
         globals.DirtyOverride += 1
         if globals.SpriteImagesShown:
             self.setPos(
-                int((self.objx + self.ImageObj.xOffset) * (globals.TileWidth / 16)),
-                int((self.objy + self.ImageObj.yOffset) * (globals.TileWidth / 16)),
+                (self.objx + self.ImageObj.xOffset) * (globals.TileWidth / 16),
+                (self.objy + self.ImageObj.yOffset) * (globals.TileWidth / 16),
             )
         else:
             self.setPos(
-                int(self.objx * (globals.TileWidth / 16)),
-                int(self.objy * (globals.TileWidth / 16)),
+                self.objx * (globals.TileWidth / 16),
+                self.objy * (globals.TileWidth / 16),
             )
         globals.DirtyOverride -= 1
 
@@ -1830,7 +1852,7 @@ class SpriteItem(LevelEditorItem):
 
     def __lt__(self, other):
         # Sort by objx, then objy, then sprite type
-        score = lambda sprite: (sprite.objx * 100000 + sprite.objy) * 1000 + sprite.type
+        score = lambda sprite: (sprite.objx, sprite.objy, sprite.type)
 
         return score(self) < score(other)
 
@@ -1840,10 +1862,12 @@ class SpriteItem(LevelEditorItem):
         """
         type = self.type
 
-        if type > len(globals.Sprites): return
+        try:
+            self.name = globals.Sprites[type].name
+        except:
+            self.name = 'UNKNOWN'
 
-        self.name = globals.Sprites[type].name
-        self.setToolTip(globals.trans.string('Sprites', 0, '[type]', self.type, '[name]', self.name))
+        self.setToolTip(globals.trans.string('Sprites', 0, '[type]', type, '[name]', self.name))
         self.UpdateListItem()
 
         imgs = globals.gamedef.getImageClasses()
@@ -1865,7 +1889,7 @@ class SpriteItem(LevelEditorItem):
             globals.gamedef.getImageClasses()[self.type].loadImages()
             SLib.SpriteImagesLoaded.add(self.type)
 
-        self.ImageObj = obj(self)
+        self.ImageObj = obj(self) if obj else SLib.SpriteImage(self)
 
         # show auxiliary objects properly
         for aux in self.ImageObj.aux:
@@ -1877,15 +1901,8 @@ class SpriteItem(LevelEditorItem):
         """
         Updates the sizes for dynamically sized sprites
         """
-        CurrentRect = QtCore.QRectF(self.x(), self.y(), self.BoundingRect.width(), self.BoundingRect.height())
-        CurrentAuxRects = []
-        for auxObj in self.ImageObj.aux:
-            CurrentAuxRects.append(QtCore.QRectF(
-                auxObj.x() + self.x(),
-                auxObj.y() + self.y(),
-                auxObj.BoundingRect.width(),
-                auxObj.BoundingRect.height(),
-            ))
+        CurrentRect = self.sceneBoundingRect()
+        CurrentAuxRects = [auxObj.sceneBoundingRect() for auxObj in self.ImageObj.aux]
 
         self.ImageObj.dataChanged()
 
@@ -1893,89 +1910,58 @@ class SpriteItem(LevelEditorItem):
             self.UpdateRects()
             self.ChangingPos = True
             self.setPos(
-                int((self.objx + self.ImageObj.xOffset) * (globals.TileWidth / 16)),
-                int((self.objy + self.ImageObj.yOffset) * (globals.TileWidth / 16)),
+                (self.objx + self.ImageObj.xOffset) * (globals.TileWidth / 16),
+                (self.objy + self.ImageObj.yOffset) * (globals.TileWidth / 16),
             )
             self.ChangingPos = False
 
         if self.scene() is not None:
+            # Update the scene at the previous location
             self.scene().update(CurrentRect)
-            self.scene().update(self.x(), self.y(), self.BoundingRect.width(), self.BoundingRect.height())
             for auxUpdateRect in CurrentAuxRects:
                 self.scene().update(auxUpdateRect)
+
+            # Update the scene at the current location
+            self.scene().update(self.sceneBoundingRect())
 
     def UpdateRects(self):
         """
         Creates all the rectangles for the sprite
         """
         self.prepareGeometryChange()
-
-        # Get rects
-        imgRect = QtCore.QRectF(
-            0, 0,
-            self.ImageObj.width * (globals.TileWidth / 16),
-            self.ImageObj.height * (globals.TileWidth / 16),
-        )
-        spriteboxRect = QtCore.QRectF(
-            0, 0,
-            self.ImageObj.spritebox.BoundingRect.width(),
-            self.ImageObj.spritebox.BoundingRect.height(),
-        )
-        imgOffsetRect = imgRect.translated(
-            (self.objx + self.ImageObj.xOffset) * (globals.TileWidth / 16),
-            (self.objy + self.ImageObj.yOffset) * (globals.TileWidth / 16),
-        )
-        spriteboxOffsetRect = spriteboxRect.translated(
-            (self.objx * (globals.TileWidth / 16)) + self.ImageObj.spritebox.BoundingRect.topLeft().x(),
-            (self.objy * (globals.TileWidth / 16)) + self.ImageObj.spritebox.BoundingRect.topLeft().y(),
-        )
+        boundingRect = self.ImageObj.spritebox.BoundingRect
 
         if globals.SpriteImagesShown:
-            unitedRect = imgRect.united(spriteboxRect)
-            unitedOffsetRect = imgOffsetRect.united(spriteboxOffsetRect)
+            selectionWidth = self.ImageObj.width * (globals.TileWidth / 16)
+            selectionHeight = self.ImageObj.height * (globals.TileWidth / 16)
 
-            # SelectionRect: Used to determine the size of the
-            # "this sprite is selected" translucent white box that
-            # appears when a sprite with an image is selected.
-            self.SelectionRect = QtCore.QRectF(
-                0, 0,
-                imgRect.width() - 1,
-                imgRect.height() - 1,
-            )
-
-            # LevelRect: Used by the Level Overview to determine
-            # the size and position of the sprite in the level.
-            # Measured in blocks.
-            self.LevelRect = QtCore.QRectF(
-                unitedOffsetRect.topLeft().x() / globals.TileWidth,
-                unitedOffsetRect.topLeft().y() / globals.TileWidth,
-                unitedOffsetRect.width() / globals.TileWidth,
-                unitedOffsetRect.height() / globals.TileWidth,
-            )
-
-            # BoundingRect: The sprite can only paint within
-            # this area.
-            self.BoundingRect = unitedRect.translated(
-                self.ImageObj.spritebox.BoundingRect.topLeft().x(),
-                self.ImageObj.spritebox.BoundingRect.topLeft().y(),
-            )
+            boundingRect |= QtCore.QRectF(0, 0, selectionWidth, selectionHeight)
 
         else:
-            self.SelectionRect = QtCore.QRectF(0, 0, globals.TileWidth, globals.TileWidth)
+            selectionWidth = selectionHeight = globals.TileWidth
 
-            self.LevelRect = QtCore.QRectF(
-                spriteboxOffsetRect.topLeft().x() / globals.TileWidth,
-                spriteboxOffsetRect.topLeft().y() / globals.TileWidth,
-                spriteboxOffsetRect.width() / globals.TileWidth,
-                spriteboxOffsetRect.height() / globals.TileWidth,
-            )
+        # SelectionRect: Used to determine the size of the
+        # "this sprite is selected" translucent white box that
+        # appears when a sprite with an image is selected.
+        self.SelectionRect = QtCore.QRectF(0, 0, selectionWidth, selectionHeight)
 
-            # BoundingRect: The sprite can only paint within
-            # this area.
-            self.BoundingRect = spriteboxRect.translated(
-                self.ImageObj.spritebox.BoundingRect.topLeft().x(),
-                self.ImageObj.spritebox.BoundingRect.topLeft().y(),
-            )
+        # BoundingRect: The sprite can only paint within this area.
+        self.BoundingRect = boundingRect
+
+        LevelRect = self.sceneBoundingRect()
+        if globals.SpriteImagesShown:
+            for auxObj in self.ImageObj.aux:
+                LevelRect |= auxObj.sceneBoundingRect()
+
+        # LevelRect: Used by the Level Overview to determine
+        # the size and position of the sprite in the level.
+        # Measured in blocks.
+        self.LevelRect = QtCore.QRectF(
+            LevelRect.x() / globals.TileWidth,
+            LevelRect.y() / globals.TileWidth,
+            LevelRect.width() / globals.TileWidth,
+            LevelRect.height() / globals.TileWidth,
+        )
 
     def getFullRect(self):
         """
@@ -1984,17 +1970,9 @@ class SpriteItem(LevelEditorItem):
         """
         self.UpdateRects()
 
-        br = self.BoundingRect.translated(
-            self.x(),
-            self.y(),
-        )
+        br = self.sceneBoundingRect()
         for aux in self.ImageObj.aux:
-            br = br.united(
-                aux.BoundingRect.translated(
-                    aux.x() + self.x(),
-                    aux.y() + self.y(),
-                )
-            )
+            br |= aux.sceneBoundingRect()
 
         return br
 
@@ -2003,10 +1981,11 @@ class SpriteItem(LevelEditorItem):
         Makes sure positions don't go out of bounds and updates them as necessary
         """
 
-        tileWidthMult = globals.TileWidth / 16
         if change == QtWidgets.QGraphicsItem.ItemPositionChange:
             if self.scene() is None: return value
             if self.ChangingPos: return value
+
+            tileWidthMult = globals.TileWidth / 16
 
             if globals.SpriteImagesShown:
                 xOffset, xOffsetAdjusted = self.ImageObj.xOffset, self.ImageObj.xOffset * tileWidthMult
@@ -2015,49 +1994,34 @@ class SpriteItem(LevelEditorItem):
                 xOffset, xOffsetAdjusted = 0, 0
                 yOffset, yOffsetAdjusted = 0, 0
 
-            # snap to 24x24
+            # Snap to 1x1
             newpos = value
+            newpos.setX(int((newpos.x() + tileWidthMult / 2 - xOffsetAdjusted) / tileWidthMult) * tileWidthMult + xOffsetAdjusted)
+            newpos.setY(int((newpos.y() + tileWidthMult / 2 - yOffsetAdjusted) / tileWidthMult) * tileWidthMult + yOffsetAdjusted)
 
-            # snap even further if Shift isn't held
-            # but -only- if globals.OverrideSnapping is off
-            if not globals.OverrideSnapping:
+            # Snap even further if Alt isn't held
+            if not (globals.OverrideSnapping or QtWidgets.QApplication.keyboardModifiers() == Qt.AltModifier):
                 objectsSelected = any([isinstance(thing, ObjectItem) for thing in globals.mainWindow.CurrentSelection])
-                if QtWidgets.QApplication.keyboardModifiers() == Qt.AltModifier:
-                    # Alt is held; don't snap
-                    newpos.setX((int((newpos.x() + 0.75) / tileWidthMult) * tileWidthMult))
-                    newpos.setY((int((newpos.y() + 0.75) / tileWidthMult) * tileWidthMult))
-                elif not objectsSelected and self.isSelected() and len(globals.mainWindow.CurrentSelection) > 1:
-                    # Snap to 8x8, but with the dragoffsets
-                    dragoffsetx, dragoffsety = int(self.dragoffsetx), int(self.dragoffsety)
-                    if dragoffsetx < -(globals.TileWidth / 2): dragoffsetx += globals.TileWidth / 2
-                    if dragoffsety < -(globals.TileWidth / 2): dragoffsety += globals.TileWidth / 2
-                    if dragoffsetx == 0: dragoffsetx = -(globals.TileWidth / 2)
-                    if dragoffsety == 0: dragoffsety = -(globals.TileWidth / 2)
-                    referenceX = int(
-                        (newpos.x() + (globals.TileWidth / 4) + (globals.TileWidth / 2) + dragoffsetx - xOffsetAdjusted) / (
-                        globals.TileWidth / 2)) * (globals.TileWidth / 2)
-                    referenceY = int(
-                        (newpos.y() + (globals.TileWidth / 4) + (globals.TileWidth / 2) + dragoffsety - yOffsetAdjusted) / (
-                        globals.TileWidth / 2)) * (globals.TileWidth / 2)
-                    newpos.setX(referenceX - ((globals.TileWidth / 2) + dragoffsetx) + xOffsetAdjusted)
-                    newpos.setY(referenceY - ((globals.TileWidth / 2) + dragoffsety) + yOffsetAdjusted)
+                if not objectsSelected and self.isSelected() and len(globals.mainWindow.CurrentSelection) > 1:
+                    # Move in sync by snapping to block halves (8x8)
+                    old_x, old_y = self.objx * tileWidthMult, self.objy * tileWidthMult
+                    new_x, new_y = newpos.x() - xOffsetAdjusted, newpos.y() - yOffsetAdjusted
+                    delta_x, delta_y = new_x - old_x, new_y - old_y
+                    newpos.setX(old_x + int(copysign((abs(delta_x) + globals.TileWidth / 4) / (globals.TileWidth // 2), delta_x)) * (globals.TileWidth // 2) + xOffsetAdjusted)
+                    newpos.setY(old_y + int(copysign((abs(delta_y) + globals.TileWidth / 4) / (globals.TileWidth // 2), delta_y)) * (globals.TileWidth // 2) + yOffsetAdjusted)
                 elif objectsSelected and self.isSelected():
-                    # Objects are selected, too; move in sync by snapping to whole blocks
-                    dragoffsetx, dragoffsety = int(self.dragoffsetx), int(self.dragoffsety)
-                    if dragoffsetx == 0: dragoffsetx = -globals.TileWidth
-                    if dragoffsety == 0: dragoffsety = -globals.TileWidth
-                    referenceX = int((newpos.x() + (
-                    globals.TileWidth / 2) + globals.TileWidth + dragoffsetx - xOffsetAdjusted) / globals.TileWidth) * globals.TileWidth
-                    referenceY = int((newpos.y() + (
-                    globals.TileWidth / 2) + globals.TileWidth + dragoffsety - yOffsetAdjusted) / globals.TileWidth) * globals.TileWidth
-                    newpos.setX(referenceX - (globals.TileWidth + dragoffsetx) + xOffsetAdjusted)
-                    newpos.setY(referenceY - (globals.TileWidth + dragoffsety) + yOffsetAdjusted)
+                    # Objects are selected, too; move in sync by snapping to whole blocks (16x16)
+                    old_x, old_y = self.objx * tileWidthMult, self.objy * tileWidthMult
+                    new_x, new_y = newpos.x() - xOffsetAdjusted, newpos.y() - yOffsetAdjusted
+                    delta_x, delta_y = new_x - old_x, new_y - old_y
+                    newpos.setX(old_x + int(copysign((abs(delta_x) + (globals.TileWidth // 2)) / globals.TileWidth, delta_x)) * globals.TileWidth + xOffsetAdjusted)
+                    newpos.setY(old_y + int(copysign((abs(delta_y) + (globals.TileWidth // 2)) / globals.TileWidth, delta_y)) * globals.TileWidth + yOffsetAdjusted)
                 else:
                     # Snap to 8x8
-                    newpos.setX(int(int((newpos.x() + (globals.TileWidth / 4) - xOffsetAdjusted) / (globals.TileWidth / 2)) * (
-                    globals.TileWidth / 2) + xOffsetAdjusted))
-                    newpos.setY(int(int((newpos.y() + (globals.TileWidth / 4) - yOffsetAdjusted) / (globals.TileWidth / 2)) * (
-                    globals.TileWidth / 2) + yOffsetAdjusted))
+                    newpos.setX(int(int((newpos.x() + (globals.TileWidth / 4) - xOffsetAdjusted) / (globals.TileWidth // 2)) * (
+                    globals.TileWidth // 2)) + xOffsetAdjusted)
+                    newpos.setY(int(int((newpos.y() + (globals.TileWidth / 4) - yOffsetAdjusted) / (globals.TileWidth // 2)) * (
+                    globals.TileWidth // 2)) + yOffsetAdjusted)
 
             x = newpos.x()
             y = newpos.y()
@@ -2075,9 +2039,9 @@ class SpriteItem(LevelEditorItem):
             if x != self.objx or y != self.objy:
                 # oldrect = self.BoundingRect
                 # oldrect.translate(self.objx*(globals.TileWidth/16), self.objy*(globals.TileWidth/16))
-                updRect = QtCore.QRectF(self.x(), self.y(), self.BoundingRect.width(), self.BoundingRect.height())
+                # updRect = QtCore.QRectF(self.x(), self.y(), self.BoundingRect.width(), self.BoundingRect.height())
                 # self.scene().update(updRect.united(oldrect))
-                self.scene().update(updRect)
+                self.scene().update(self.sceneBoundingRect())
 
                 self.LevelRect.moveTo((x + xOffset) / 16, (y + yOffset) / 16)
 
@@ -2133,7 +2097,7 @@ class SpriteItem(LevelEditorItem):
             LevelEditorItem.mousePressEvent(self, event)
 
             if not globals.SpriteImagesShown:
-                self.setNewObjPos(oldpos[0], oldpos[1])
+                self.setNewObjPos(*oldpos)
 
             return
 
@@ -2154,21 +2118,22 @@ class SpriteItem(LevelEditorItem):
         newitem.UpdateListItem()
         SetDirty()
 
-    def nearestZone(self, obj=False):
+    def nearestZone(self, obj=False, zonelist=None):
         """
         Calls a modified MapPositionToZoneID (if obj = True, it returns the actual ZoneItem object)
         """
-        if not hasattr(globals.Area, 'zones'):
-            return None
+        if zonelist is None:
+            if not hasattr(globals.Area, 'zones'):
+                return None if obj else -1
 
-        id = SLib.MapPositionToZoneID(globals.Area.zones, self.objx, self.objy, True)
+            zonelist = globals.Area.zones
 
-        if obj:
-            for z in globals.Area.zones:
-                if z.id == id:
-                    return z
-        else:
-            return id
+        id = SLib.MapPositionToZoneID(zonelist, self.objx, self.objy)
+        if id == -1:
+            return None if obj else -1
+
+        zone = zonelist[id]
+        return zone if obj else zone.id
 
     def updateScene(self):
         """
@@ -2235,6 +2200,7 @@ class SpriteItem(LevelEditorItem):
         """
         Delete the sprite from the level
         """
+        self.ImageObj.delete()
         sprlist = globals.mainWindow.spriteList
         globals.mainWindow.UpdateFlag = True
         sprlist.takeItem(sprlist.row(self.listitem))
@@ -2298,11 +2264,11 @@ class EntranceItem(LevelEditorItem):
             if self.parent.enttype == 20:
                 # Jumping facing right
 
-                path = QtGui.QPainterPath(QtCore.QPoint(globals.TileWidth / 2, 11.5 * globals.TileWidth))
-                path.cubicTo(QtCore.QPoint(globals.TileWidth * 5 / 3, -globals.TileWidth),
-                             QtCore.QPoint(2.0833333 * globals.TileWidth, -globals.TileWidth),
-                             QtCore.QPoint(2.5 * globals.TileWidth, globals.TileWidth * 3 / 2))
-                path.lineTo(QtCore.QPoint(4 * globals.TileWidth, 12.5 * globals.TileWidth))
+                path = QtGui.QPainterPath(QtCore.QPointF(globals.TileWidth / 2, 11.5 * globals.TileWidth))
+                path.cubicTo(QtCore.QPointF(globals.TileWidth * 5 / 3, -globals.TileWidth),
+                             QtCore.QPointF(2.0833333 * globals.TileWidth, -globals.TileWidth),
+                             QtCore.QPointF(2.5 * globals.TileWidth, globals.TileWidth * 3 / 2))
+                path.lineTo(QtCore.QPointF(4 * globals.TileWidth, 12.5 * globals.TileWidth))
 
                 painter.setPen(SLib.OutlinePen)
                 painter.drawPath(path)
@@ -2325,11 +2291,11 @@ class EntranceItem(LevelEditorItem):
             elif self.parent.enttype == 24:
                 # Jumping facing left
 
-                path = QtGui.QPainterPath(QtCore.QPoint(3.5833333 * globals.TileWidth, 11.5 * globals.TileWidth))
-                path.cubicTo(QtCore.QPoint(2.41666666 * globals.TileWidth, -globals.TileWidth),
-                             QtCore.QPoint(globals.TileWidth / 2, -globals.TileWidth),
-                             QtCore.QPoint(1.58333333 * globals.TileWidth, globals.TileWidth * 3 / 2))
-                path.lineTo(QtCore.QPoint(globals.TileWidth / 12, globals.TileWidth * 12.5))
+                path = QtGui.QPainterPath(QtCore.QPointF(3.5833333 * globals.TileWidth, 11.5 * globals.TileWidth))
+                path.cubicTo(QtCore.QPointF(2.41666666 * globals.TileWidth, -globals.TileWidth),
+                             QtCore.QPointF(globals.TileWidth / 2, -globals.TileWidth),
+                             QtCore.QPointF(1.58333333 * globals.TileWidth, globals.TileWidth * 3 / 2))
+                path.lineTo(QtCore.QPointF(globals.TileWidth / 12, globals.TileWidth * 12.5))
 
                 painter.setPen(SLib.OutlinePen)
                 painter.drawPath(path)
@@ -2510,14 +2476,7 @@ class EntranceItem(LevelEditorItem):
         """
         if change == QtWidgets.QGraphicsItem.ItemPositionChange:
             if self.scene() is None: return value
-
-            updRect = QtCore.QRectF(
-                self.x() + self.aux.x(),
-                self.y() + self.aux.y(),
-                self.aux.BoundingRect.width(),
-                self.aux.BoundingRect.height(),
-            )
-            self.scene().update(updRect)
+            self.scene().update(self.aux.sceneBoundingRect())
 
         return super().itemChange(change, value)
 
@@ -2577,7 +2536,7 @@ class PathItem(LevelEditorItem):
         self.setPos(int(objx * globals.TileWidth / 16), int(objy * globals.TileWidth / 16))
         globals.DirtyOverride -= 1
 
-        self.setZValue(25002)
+        self.setZValue(25003)
         self.UpdateTooltip()
 
         self.setVisible(globals.PathsShown)
@@ -2598,7 +2557,7 @@ class PathItem(LevelEditorItem):
         return globals.trans.string('Paths', 1, '[path]', self.pathid, '[node]', self.nodeid)
 
     def __lt__(self, other):
-        return (self.pathid * 10000 + self.nodeid) < (other.pathid * 10000 + other.nodeid)
+        return (self.pathid, self.nodeid) < (other.pathid, other.nodeid)
 
     def updatePos(self):
         """
@@ -2700,7 +2659,7 @@ class NabbitPathItem(LevelEditorItem):
         self.setPos(int(self.objx * globals.TileWidth / 16), int(self.objy * globals.TileWidth / 16))
         globals.DirtyOverride -= 1
 
-        self.setZValue(25002)
+        self.setZValue(25003)
         self.UpdateTooltip()
 
         self.setVisible(globals.PathsShown)
@@ -2853,21 +2812,27 @@ class PathEditorLineItem(LevelEditorItem):
         painter.setBrush(QtGui.QBrush(color))
         painter.setPen(QtGui.QPen(color, 3 * globals.TileWidth / 24, join=Qt.RoundJoin, cap=Qt.RoundCap))
 
+        mult = globals.TileWidth / 16
         lines = []
 
         snl = self.nodelist
-        mult = globals.TileWidth / 16
-        for j, node in enumerate(snl):
-            if ((j + 1) < len(snl)):
-                a = QtCore.QPointF(float((snl[j]['x'] + 8) * mult) - self.x(), float((snl[j]['y'] + 8) * mult) - self.y())
-                b = QtCore.QPointF(float((snl[j + 1]['x'] + 8) * mult) - self.x(), float((snl[j + 1]['y'] + 8) * mult) - self.y())
-                lines.append(QtCore.QLineF(a, b))
-            elif self.loops and (j + 1) == len(snl):
-                a = QtCore.QPointF(float((snl[j]['x'] + 8) * mult) - self.x(), float((snl[j]['y'] + 8) * mult) - self.y())
-                b = QtCore.QPointF(float((snl[0]['x'] + 8) * mult) - self.x(), float((snl[0]['y'] + 8) * mult) - self.y())
-                lines.append(QtCore.QLineF(a, b))
+        for j in range(len(self.nodelist)):
+            if (j+1) < len(self.nodelist):
+                lines.append(QtCore.QLineF(
+                    float((snl[j  ]['x'] + 8) * mult) - self.x(),
+                    float((snl[j  ]['y'] + 8) * mult) - self.y(),
+                    float((snl[j+1]['x'] + 8) * mult) - self.x(),
+                    float((snl[j+1]['y'] + 8) * mult) - self.y()))
 
         painter.drawLines(lines)
+
+        painter.setPen(QtGui.QPen(color, 3 * globals.TileWidth / 24, join=Qt.RoundJoin, cap=Qt.RoundCap, style=Qt.DotLine))
+        if self.loops:
+            painter.drawLine(QtCore.QLineF(
+                float((snl[-1]['x'] + 8) * mult) - self.x(),
+                float((snl[-1]['y'] + 8) * mult) - self.y(),
+                float((snl[ 0]['x'] + 8) * mult) - self.x(),
+                float((snl[ 0]['y'] + 8) * mult) - self.y()))
 
     def delete(self):
         """
@@ -2908,19 +2873,17 @@ class NabbitPathEditorLineItem(PathEditorLineItem):
         painter.setBrush(QtGui.QBrush(color))
         painter.setPen(QtGui.QPen(color, 3 * globals.TileWidth / 24, join=Qt.RoundJoin, cap=Qt.RoundCap))
 
+        mult = globals.TileWidth / 16
         lines = []
 
         snl = self.nodelist
-        mult = globals.TileWidth / 16
-        for j, node in enumerate(snl):
-            if ((j + 1) < len(snl)):
-                a = QtCore.QPointF(float(snl[j]['x'] * mult) - self.x(), float(snl[j]['y'] * mult) - self.y())
-                b = QtCore.QPointF(float(snl[j + 1]['x'] * mult) - self.x(), float(snl[j + 1]['y'] * mult) - self.y())
-                lines.append(QtCore.QLineF(a, b))
-            elif self.loops and (j + 1) == len(snl):
-                a = QtCore.QPointF(float(snl[j]['x'] * mult) - self.x(), float(snl[j]['y'] * mult) - self.y())
-                b = QtCore.QPointF(float(snl[0]['x'] * mult) - self.x(), float(snl[0]['y'] * mult) - self.y())
-                lines.append(QtCore.QLineF(a, b))
+        for j in range(len(self.nodelist)):
+            if (j+1) < len(self.nodelist):
+                lines.append(QtCore.QLineF(
+                    float(snl[j  ]['x'] * mult) - self.x(),
+                    float(snl[j  ]['y'] * mult) - self.y(),
+                    float(snl[j+1]['x'] * mult) - self.x(),
+                    float(snl[j+1]['y'] * mult) - self.y()))
 
         painter.drawLines(lines)
 
@@ -2973,9 +2936,9 @@ class CommentItem(LevelEditorItem):
         self.TextEditProxy.boundingRect = lambda self: QtCore.QRectF(0, 0, 4000, 4000)
         self.TextEdit.setVisible(False)
         self.TextEdit.setMinimumWidth(8 * globals.TileWidth)
-        self.TextEdit.setMinimumHeight(16 * globals.TileWidth / 3)
+        self.TextEdit.setMinimumHeight(round(16 * globals.TileWidth / 3))
         self.TextEdit.setMaximumWidth(8 * globals.TileWidth)
-        self.TextEdit.setMaximumHeight(16 * globals.TileWidth / 3)
+        self.TextEdit.setMaximumHeight(round(16 * globals.TileWidth / 3))
         self.TextEdit.setPlainText(self.text)
         self.TextEdit.textChanged.connect(self.handleTextChanged)
         self.TextEdit.zoomIn(13)

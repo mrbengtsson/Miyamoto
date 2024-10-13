@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Miyamoto! Level Editor - New Super Mario Bros. U Level Editor
-# Copyright (C) 2009-2020 Treeki, Tempus, angelsl, JasonP27, Kinnay,
+# Copyright (C) 2009-2021 Treeki, Tempus, angelsl, JasonP27, Kinnay,
 # MalStar1000, RoadrunnerWMC, MrRean, Grop, AboodXD, Gota7, John10v10,
 # mrbengtsson
 
@@ -49,7 +49,12 @@ import time
 import traceback
 
 # PyQt5: import
-pqt_min = map(int, "5.4.1".split('.'))
+if currentRunningVersion >= 3.10:
+    pqt_min = map(int, "5.15.6".split('.'))
+    pqt_min_str = '5.15.6'
+else:
+    pqt_min = map(int, "5.12.2".split('.'))
+    pqt_min_str = '5.12.2'
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 Qt = QtCore.Qt
@@ -58,7 +63,7 @@ version = map(int, QtCore.QT_VERSION_STR.split('.'))
 for v, c in zip(version, pqt_min):
     if c > v:
         # lower version
-        errormsg = 'Please update your copy of PyQt to 5.4.1' + \
+        errormsg = 'Please update your copy of PyQt to ' + str(pqt_min_str) + \
                    ' or greater. Currently running on: ' + QtCore.QT_VERSION_STR
 
         raise Exception(errormsg) from None
@@ -118,10 +123,17 @@ from yaz0 import determineCompressionMethod
 CompYaz0, DecompYaz0 = determineCompressionMethod()
 
 
+# Save the original exception handler
+_excepthook_original = sys.excepthook
+
+
 def _excepthook(*exc_info):
     """
     Custom unhandled exceptions handler
     """
+    if globals.app is None:
+        return _excepthook_original(*exc_info)
+
     separator = '-' * 80
     logFile = "log.txt"
     notice = \
@@ -174,8 +186,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         if shortcut is not None: act.setShortcut(shortcut)
         if statustext is not None: act.setStatusTip(statustext)
-        if toggle:
-            act.setCheckable(True)
+        if toggle: act.setCheckable(True)
         if function is not None: act.triggered.connect(function)
 
         self.actions[shortname] = act
@@ -308,6 +319,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         toggleHandlers = {
             self.HandleSpritesVisibility: globals.SpritesShown,
             self.HandleSpriteImages: globals.SpriteImagesShown,
+            self.HandleRotationPreview: globals.RotationShown,
             self.HandleLocationsVisibility: globals.LocationsShown,
             self.HandleCommentsVisibility: globals.CommentsShown,
             self.HandlePathsVisibility: globals.PathsShown,
@@ -432,7 +444,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             'exit', self.HandleExit, GetIcon('delete'),
             globals.trans.string('MenuItems', 20),
             globals.trans.string('MenuItems', 21),
-            QtGui.QKeySequence('Ctrl+Q'),
+            QtGui.QKeySequence.Quit,
         )
 
         # Edit
@@ -613,6 +625,13 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         )
 
         self.CreateAction(
+            'showrotation', self.HandleRotationPreview, GetIcon('rotation'),
+            globals.trans.string('MenuItems', 150),
+            globals.trans.string('MenuItems', 151),
+            QtGui.QKeySequence('Ctrl+R'), True,
+        )
+
+        self.CreateAction(
             'showlocations', self.HandleLocationsVisibility, GetIcon('locations'),
             globals.trans.string('MenuItems', 58),
             globals.trans.string('MenuItems', 59),
@@ -788,6 +807,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         self.actions['showsprites'].setChecked(globals.SpritesShown)
         self.actions['showspriteimages'].setChecked(globals.SpriteImagesShown)
+        self.actions['showrotation'].setChecked(globals.RotationShown)
         self.actions['showlocations'].setChecked(globals.LocationsShown)
         self.actions['showcomments'].setChecked(globals.CommentsShown)
         self.actions['showpaths'].setChecked(globals.PathsShown)
@@ -864,6 +884,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         vmenu.addSeparator()
         vmenu.addAction(self.actions['showsprites'])
         vmenu.addAction(self.actions['showspriteimages'])
+        vmenu.addAction(self.actions['showrotation'])
         vmenu.addAction(self.actions['showlocations'])
         vmenu.addAction(self.actions['showcomments'])
         vmenu.addAction(self.actions['showpaths'])
@@ -993,6 +1014,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             ), (
                 'showsprites',
                 'showspriteimages',
+                'showrotation',
                 'showlocations',
                 'showpaths',
             ), (
@@ -1074,7 +1096,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         act.setIcon(GetIcon('overview'))
         act.setStatusTip(globals.trans.string('MenuItems', 95))
         self.vmenu.addAction(act)
-		
+
         # quick paint configuration
         dock = QtWidgets.QDockWidget(globals.trans.string('MenuItems', 136), self)
         dock.setFeatures(
@@ -1245,7 +1267,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         else:
             folders = os.listdir(top_folder)
-            folders.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split('(\d+)', s)])
+            folders.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)])
 
             folders_ = [folder for folder in folders if os.path.isdir(top_folder + "/" + folder)]
             del folders
@@ -1504,7 +1526,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         stampToolsBtn.setMenu(menu)
         stampToolsBtn.setPopupMode(QtWidgets.QToolButton.InstantPopup)
         stampToolsBtn.setSizePolicy(stampAddBtn.sizePolicy())
-        stampToolsBtn.setMinimumHeight(stampAddBtn.height() / 20)
+        stampToolsBtn.setMinimumHeight(round(stampAddBtn.height() / 20))
 
         stampNameLabel = QtWidgets.QLabel(globals.trans.string('Palette', 35))
         self.stampNameEdit = QtWidgets.QLineEdit()
@@ -1562,19 +1584,12 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         Auto saves the level
         """
         return
-        if not globals.AutoSaveDirty: return
-
-        name = self.getInnerSarcName()
-        if "-" not in name:
-            print('HEY THERE IS NO -, THIS WILL NOT WORK!')
-        if name == '':
-            return
-
-        data = globals.Level.save(name)
-        globals.levelNameCache = name
-        setSetting('AutoSaveFilePath', self.fileSavePath)
-        setSetting('AutoSaveFileData', QtCore.QByteArray(data))
-        globals.AutoSaveDirty = False
+#        if not globals.AutoSaveDirty: return
+#
+#        data = globals.Level.save()
+#        setSetting('AutoSaveFilePath', self.fileSavePath)
+#        setSetting('AutoSaveFileData', QtCore.QByteArray(data))
+#        globals.AutoSaveDirty = False
 
     def TrackClipboardUpdates(self):
         """
@@ -1634,10 +1649,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         ret = msg.exec_()
 
         if ret == QtWidgets.QMessageBox.Save:
-            if not self.HandleSave():
-                # save failed
-                return True
-            return False
+            return not self.HandleSave()
         elif ret == QtWidgets.QMessageBox.Discard:
             return False
         elif ret == QtWidgets.QMessageBox.Cancel:
@@ -2077,15 +2089,15 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         clipboard_o.sort(key=lambda x: x.zValue())
 
         for item in clipboard_o:
-            convclip.append('0:%d:%d:%d:%d:%d:%d:%d' % (
-            item.tileset, item.type, item.layer, item.objx, item.objy, item.width, item.height))
+            convclip.append('0:%d:%d:%d:%d:%d:%d:%d:%d' % (
+            item.tileset, item.type, item.layer, item.objx, item.objy, item.width, item.height, item.data))
 
         # get sprites
         for item in clipboard_s:
             data = item.spritedata
-            convclip.append('1:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d' % (
+            convclip.append('1:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d:%d' % (
             item.type, item.objx, item.objy, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
-            data[8], data[9], data[10], data[11]))
+            data[8], data[9], data[10], data[11], item.layer, item.initialState))
 
         convclip.append('%')
         return '|'.join(convclip)
@@ -2221,7 +2233,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         return added
 
-    def getEncodedObjects(self, encoded):
+    def getEncodedObjects(self, encoded, countCheck = True):
         """
         Create the objects from a MiyamotoClip
         """
@@ -2230,15 +2242,16 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         sprites = []
 
         try:
-            if not (encoded.startswith('MiyamotoClip|') and encoded.endswith('|%')): return
+            if not (encoded.startswith('MiyamotoClip|') and encoded.endswith('|%')):
+                return layers, sprites
 
-            clip = encoded[11:-2].split('|')
+            clip = encoded[13:-2].split('|')
 
-            if len(clip) > 300:
+            if countCheck and len(clip) > 300:
                 result = QtWidgets.QMessageBox.warning(self, 'Miyamoto!', globals.trans.string('MainWindow', 1),
                                                        QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No)
                 if result == QtWidgets.QMessageBox.No:
-                    return
+                    return layers, sprites
 
             for item in clip:
                 # Check to see whether it's an object or sprite
@@ -2246,7 +2259,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                 split = item.split(':')
                 if split[0] == '0':
                     # object
-                    if len(split) != 8: continue
+                    if len(split) != 9: continue
 
                     tileset = int(split[1])
                     type = int(split[2])
@@ -2255,6 +2268,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                     objy = int(split[5])
                     width = int(split[6])
                     height = int(split[7])
+                    data = int(split[8])
 
                     # basic sanity checks
                     if tileset < 0 or tileset > 3: continue
@@ -2264,22 +2278,25 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                     if objy < 0 or objy > 511: continue
                     if width < 1 or width > 1023: continue
                     if height < 1 or height > 511: continue
+                    if data < 0 or data > 24: continue
 
-                    newitem = ObjectItem(tileset, type, layer, objx, objy, width, height, 1)
+                    newitem = ObjectItem(tileset, type, layer, objx, objy, width, height, 1, data)
 
                     layers[layer].append(newitem)
 
                 elif split[0] == '1':
                     # sprite
-                    if len(split) != 16: continue
+                    if len(split) != 18: continue
 
                     objx = int(split[2])
                     objy = int(split[3])
                     data = bytes(map(int,
                                      [split[4], split[5], split[6], split[7], split[8], split[9],
                                       split[10], split[11], split[12], split[13], split[14], split[15]]))
+                    layer = int(split[16])
+                    initialState = int(split[17])
 
-                    newitem = SpriteItem(int(split[1]), objx, objy, data)
+                    newitem = SpriteItem(int(split[1]), objx, objy, data, layer, initialState)
                     sprites.append(newitem)
 
         except ValueError:
@@ -2505,9 +2522,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             reply = QtWidgets.QMessageBox.question(self, 'Message',
                                                    con_msg, QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No)
 
-            if reply == QtWidgets.QMessageBox.Yes:
-                if not self.HandleSave(): return
-            else:
+            if reply != QtWidgets.QMessageBox.Yes or not self.HandleSave():
                 return
 
         filetypes = ''
@@ -2566,10 +2581,6 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                     break
 
             else:
-                warningBox = QtWidgets.QMessageBox(QtWidgets.QMessageBox.NoIcon, 'OH NO',
-                                                   'Couldn\'t find the inner level file. Aborting.')
-                warningBox.exec_()
-
                 return ''
 
             return arcdata
@@ -2585,11 +2596,20 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         else:
             arcdata = guessInnerName()
 
-        if not arcdata:
-            return False
+        if arcdata:
+            arc_ = SarcLib.SARC_Archive()
+            arc_.load(arcdata)
 
-        arc_ = SarcLib.SARC_Archive()
-        arc_.load(arcdata)
+        else:
+            if exists('course'):
+                arc_ = arc
+
+            else:
+                warningBox = QtWidgets.QMessageBox(QtWidgets.QMessageBox.NoIcon, 'OH NO',
+                                                   'Couldn\'t find the inner level file. Aborting.')
+                warningBox.exec_()
+
+                return False
 
         # get the area count
         areacount = 0
@@ -2637,6 +2657,8 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                 elif fname == reqL2:
                     L2 = val
 
+        assert course is not None
+
         # import the tilesets with the area
         getblock = struct.Struct('>II')
         data = getblock.unpack_from(course, 0)
@@ -2671,17 +2693,8 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             reply = QtWidgets.QMessageBox.question(self, 'Message',
                                                    con_msg, QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No)
 
-            if reply == QtWidgets.QMessageBox.Yes:
-                if not self.HandleSave(): return
-
-            else:
+            if reply != QtWidgets.QMessageBox.Yes or not self.HandleSave():
                 return
-
-        name = self.getInnerSarcName()
-        if "-" not in name:
-            print('HEY THERE IS NO -, THIS WILL NOT WORK!')
-        if name == '':
-            return
 
         globals.Level.deleteArea(globals.Area.areanum)
 
@@ -2689,15 +2702,13 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         if self.fileSavePath.endswith('.szs'):
             CompYaz0(
-                globals.Level.saveNewArea(name, None, None, None, None),
+                globals.Level.saveNewArea(None, None, None, None),
                 self.fileSavePath, globals.CompLevel,
             )
 
         else:
             with open(self.fileSavePath, 'wb+') as f:
-                f.write(globals.Level.saveNewArea(name, None, None, None, None))
-
-        globals.levelNameCache = name
+                f.write(globals.Level.saveNewArea(None, None, None, None))
 
         if globals.CurrentArea in globals.ObjectAddedtoEmbedded:  # Should always be true
             del globals.ObjectAddedtoEmbedded[globals.CurrentArea]
@@ -2747,7 +2758,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         self.folderPicker.clear()
 
         folders = os.listdir(path)
-        folders.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split('(\d+)', s)])
+        folders.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)])
 
         folders_ = [folder for folder in folders if os.path.isdir(path + "/" + folder)]
         del folders
@@ -2783,9 +2794,11 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         globals.isEmbeddedSeparate = dlg.generalTab.separate.isChecked()
         setSetting('isEmbeddedSeparate', globals.isEmbeddedSeparate)
 
-        # Determine if the inner sarc name should be modifiable
-        globals.modifyInnerName = dlg.generalTab.modifyInnerName.isChecked()
-        setSetting('ModifyInnerName', globals.modifyInnerName)
+        # Determine the pivotal rotation animation FPS
+        SLib.RotationFPS = dlg.generalTab.rotationFPS.value()
+        setSetting('RotationFPS', SLib.RotationFPS)
+        if SLib.RotationTimer.isActive():
+            SLib.RotationTimer.setInterval(round(1000 / SLib.RotationFPS))
 
         # Get the Toolbar tab settings
         boxes = (
@@ -2844,20 +2857,13 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         Save a level back to the archive
         """
         if not self.fileSavePath:
-            if not self.HandleSaveAs():
-                return False
+            return self.HandleSaveAs()
 
-            else:
-                return True
+        data = globals.Level.save()
+        if len(data) > 73295462:
+            QtWidgets.QMessageBox.warning(None, globals.trans.string('Err_Save', 2),
+                                          globals.trans.string('Err_Save', 3))
 
-        name = self.getInnerSarcName()
-        if "-" not in name:
-            print('HEY THERE IS NO -, THIS WILL NOT WORK!')
-        if name == '':
-            return False
-
-        data = globals.Level.save(name)
-        globals.levelNameCache = name
         try:
             if self.fileSavePath.endswith('.szs'):
                 CompYaz0(data, self.fileSavePath, globals.CompLevel)
@@ -2885,19 +2891,13 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         Save a level back to the archive
         """
         if not self.fileSavePath:
-            if not self.HandleSaveAs():
-                return False
-            else:
-                return True
+            return self.HandleSaveAs()
 
-        name = self.getInnerSarcName()
-        if "-" not in name:
-            print('HEY THERE IS NO -, THIS WILL NOT WORK!')
-        if name == '':
-            return False
+        data = globals.Level.saveNewArea(course, L0, L1, L2)
+        if len(data) > 73295462:
+            QtWidgets.QMessageBox.warning(None, globals.trans.string('Err_Save', 2),
+                                          globals.trans.string('Err_Save', 3))
 
-        data = globals.Level.saveNewArea(name, course, L0, L1, L2)
-        globals.levelNameCache = name
         try:
             if self.fileSavePath.endswith('.szs'):
                 CompYaz0(data, self.fileSavePath, globals.CompLevel)
@@ -2936,19 +2936,10 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         self.fileSavePath = fn
         self.fileTitle = os.path.basename(fn)
 
-        # we take the name of the level and make sure it's formatted right. if not, crashy
-        # this is one of the few ways, if there's no - it will certainly crash
-        name = self.getInnerSarcName()
-        if name == "":
-            return False
-        # oh noes there's no - !!!
-        elif "-" not in name:
-            warningBox = QtWidgets.QMessageBox(QtWidgets.QMessageBox.NoIcon, 'Name warning',
-                                               'The input name does not include a -, which is what retail levels use. \nThis may crash, because it does not fit the proper format.')
-            warningBox.exec_()
-
-        data = globals.Level.save(name)
-        globals.levelNameCache = name
+        data = globals.Level.save()
+        if len(data) > 73295462:
+            QtWidgets.QMessageBox.warning(None, globals.trans.string('Err_Save', 2),
+                                          globals.trans.string('Err_Save', 3))
 
         if self.fileSavePath.endswith('.szs'):
             CompYaz0(data, self.fileSavePath, globals.CompLevel)
@@ -2966,25 +2957,6 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         return True
 
-    def getInnerSarcName(self):
-        name = os.path.splitext(self.fileTitle)[0]
-        if not name or "/" in name or "\\" in name or globals.modifyInnerName:
-            name = QtWidgets.QInputDialog.getText(self, "Choose Internal Name",
-                                                  "Choose an internal filename for this level (do not add a .sarc/.szs extension) (example: 1-1):" \
-                                                  "\n(To make Miyamoto automatically set the internal filename to the filename of the level file," \
-                                                  "\nGo to Preferences and uncheck \"Modify Internal Name\".)",
-                                                  QtWidgets.QLineEdit.Normal)[0]
-
-            if "/" in name or "\\" in name:
-                warningBox = QtWidgets.QMessageBox(QtWidgets.QMessageBox.NoIcon, 'Name warning', r'The input name included "/" or "\", aborting...')
-                warningBox.exec_()
-                return ''
-
-        if globals.levelNameCache == "untitled":
-            globals.levelNameCache = name
-
-        return name
-
     def HandleExit(self):
         """
         Exit the editor. Why would you want to do this anyway?
@@ -2995,12 +2967,13 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         """
         Handle activated signals for areaComboBox
         """
-        if self.CheckDirty():
-            self.areaComboBox.setCurrentIndex(globals.Area.areanum)
+        prevIdx = globals.Area.areanum - 1
+        if idx == prevIdx:
             return
 
-        if globals.Area.areanum != idx + 1:
-            self.LoadLevel(None, self.fileSavePath, True, idx + 1)
+        if self.CheckDirty() or not self.LoadLevel(None, self.fileSavePath, True, idx + 1):
+            globals.Area.areanum = prevIdx + 1
+            self.areaComboBox.setCurrentIndex(prevIdx)
 
     def HandleUpdateLayer0(self, checked):
         """
@@ -3102,10 +3075,52 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                         spr.objx * (globals.TileWidth / 16),
                         spr.objy * (globals.TileWidth / 16),
                     )
+                spr.UpdateDynamicSizing()
             globals.DirtyOverride -= 1
             globals.OverrideSnapping = False
 
         self.scene.update()
+        self.levelOverview.update()
+
+    def HandleRotationPreview(self, checked):
+        """
+        Handle toggling of sprite images
+        """
+        globals.RotationShown = checked
+        setSetting('RotationShown', globals.RotationShown)
+
+        if globals.RotationShown and globals.RotationNoticeShown and not globals.Initializing:
+            noticeShown = QtWidgets.QCheckBox('Don\'t show again')
+            box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.NoIcon, 'Pivotal Rotation Preview',
+                                        'All sprites connected to a Pivotal Rotation controller will now have their sprite images affected accordingly. ' \
+                                        'If the sprites are connected, you will not be able to move said sprites until you disable the preview.\n\n' \
+                                        'This only works if both the sprite and the controller belong to the same zone.\n',
+                                        QtWidgets.QMessageBox.Ok)
+            box.setCheckBox(noticeShown)
+            box.exec_()
+
+            globals.RotationNoticeShown = not noticeShown.isChecked()
+            setSetting('RotationNoticeShown', globals.RotationNoticeShown)
+
+        SLib.RotationFrame = 0
+
+        globals.OverrideSnapping = True
+        globals.DirtyOverride += 1
+        if globals.Area is not None:
+            for spr in globals.Area.sprites:
+                if isinstance(spr.ImageObj, SLib.SpriteImage_MovementControlled) and spr.ImageObj.controller:
+                    spr.UpdateDynamicSizing()
+        globals.DirtyOverride -= 1
+        globals.OverrideSnapping = False
+
+        if globals.Area is not None and globals.RotationShown:
+            SLib.RotationTimer.start(round(1000 / SLib.RotationFPS))
+
+        else:
+            SLib.RotationTimer.stop()
+
+        self.scene.update()
+        self.levelOverview.update()
 
     def HandleLocationsVisibility(self, checked):
         """
@@ -3417,6 +3432,8 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             self.locationEditorDock.setVisible(False)
             self.defaultPropDock.setVisible(False)
 
+            SLib.RotationTimer.stop()
+
             # state: determines positions of docks
             # geometry: determines the main window position
             setSetting('MainWindowState', self.saveState(0))
@@ -3468,17 +3485,33 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         new = name is None
 
         if new:
-            # Set the filepath variables
-            self.fileSavePath = False
-            self.fileTitle = 'untitled'
+            # Preserve the current szsData and tilesets in case something goes wrong
+            szsData = globals.szsData
+            tilesets = self.tilesets if hasattr(self, 'tilesets') else [[], [], [], []]
 
+            del globals.szsData
+            del self.tilesets
             globals.szsData = {}
             self.tilesets = [[], [], [], []]
 
             for tileset_name in globals.Pa0Tilesets:
                 ret = self.LoadDefaultTileset(tileset_name)
                 if not ret:
+                    # Something went wrong, restore szsData and tilesets
+                    del globals.szsData
+                    del self.tilesets
+                    globals.szsData = szsData
+                    self.tilesets = tilesets
+
                     return False
+
+            # Nothing went wrong, delete szsData and tilesets backups
+            del szsData
+            del tilesets
+
+            # Set the filepath variables
+            self.fileSavePath = False
+            self.fileTitle = 'untitled'
 
         else:
             globals.levName = os.path.basename(name)
@@ -3557,41 +3590,42 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                         os.path.basename(self.fileSavePath).split(' ')[0])  # for names like "1-1 test.szs"
                     possibilities.append(os.path.basename(self.fileSavePath).split('.')[0])
                     possibilities.append(os.path.basename(self.fileSavePath).split('_')[0])
-                    possibilities.append(globals.levelNameCache)
 
                     for fn in possibilities:
                         if exists(fn):
-                            globals.levelNameCache = fn
-                            levelFileData = arc[fn].data
-                            break
+                            return arc[fn].data, fn
+
+                    return None, ''
+
+                levelname = ''
+
+                if exists('levelname'):
+                    fn = bytes_to_string(arc['levelname'].data)
+                    if exists(fn):
+                        levelFileData = arc[fn].data
+                        levelname = fn
+                    else:
+                        levelFileData, levelname = guessInnerName()
+
+                else:
+                    levelFileData, levelname = guessInnerName()
+
+                if not levelFileData:
+                    if exists('course'):
+                        levelFileData = levelData
 
                     else:
                         warningBox = QtWidgets.QMessageBox(QtWidgets.QMessageBox.NoIcon, 'OH NO',
                                                            'Couldn\'t find the inner level file. Aborting.')
                         warningBox.exec_()
 
-                        return ''
-
-                    return levelFileData
-
-                if exists('levelname'):
-                    fn = bytes_to_string(arc['levelname'].data)
-                    if exists(fn):
-                        globals.levelNameCache = fn
-                        levelFileData = arc[fn].data
-                    else:
-                        levelFileData = guessInnerName()
-
-                else:
-                    levelFileData = guessInnerName()
-
-                if not levelFileData:
-                    return False
+                        return False
 
                 # Sort the szs data
                 globals.szsData = {}
                 for file in arc.contents:
-                    globals.szsData[file.name] = file.data
+                    if isinstance(file, SarcLib.File) and (not levelname or file.name != levelname):
+                        globals.szsData[file.name] = file.data
 
                 # Get all tilesets in the level
                 self.tilesets = [[], [], [], []]
@@ -3704,7 +3738,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                 self.folderPicker.clear()
 
                 folders = os.listdir(top_folder)
-                folders.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split('(\d+)', s)])
+                folders.sort(key=lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', s)])
 
                 folders_ = [folder for folder in folders if os.path.isdir(top_folder + "/" + folder)]
                 del folders
@@ -3724,12 +3758,13 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             self.LoadLevel_NSMBU(levelData, areaNum)
 
         # Refresh object layouts
-        self.objPicker.LoadFromTilesets()
+        HandleTilesetEdited(True)
         for layer in globals.Area.layers:
             for obj in layer:
                 obj.updateObjCache()
         for sprite in globals.Area.sprites:
             sprite.UpdateDynamicSizing()
+            sprite.ImageObj.positionChanged()
         self.scene.update()
 
         # Set up and reset the Quick Paint Tool
@@ -3804,13 +3839,10 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         # Load it
         globals.Level.new()
-        globals.levelNameCache = "untitled"
 
         self.objUseLayer1.setChecked(True)
 
         self.ReloadTilesets()
-
-        self.objPicker.LoadFromTilesets()
 
         self.objAllTab.setCurrentIndex(0)
         self.objAllTab.setTabEnabled(0, True)
@@ -3915,7 +3947,8 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             com.UpdateListItem()
 
         for tileset_name in globals.Pa0Tilesets:
-            self.LoadDefaultTileset(tileset_name, True)
+            if tileset_name not in globals.szsData:
+                self.LoadDefaultTileset(tileset_name, True)
 
     def ReloadTilesets(self, soft=False):
         """
@@ -3926,7 +3959,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             if (name is not None) and (name != ''):
                 LoadTileset(idx, name, not soft)
 
-        self.objPicker.LoadFromTilesets()
+        HandleTilesetEdited(True)
 
         for layer in globals.Area.layers:
             for obj in layer:
@@ -4147,22 +4180,13 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         self.CurrentSelection = selitems
 
-        for thing in selitems:
-            # This helps sync non-objects with objects while dragging
-            if not isinstance(thing, ObjectItem):
-                thing.dragoffsetx = (((thing.objx // 16) * 16) - thing.objx) * globals.TileWidth / 16
-                thing.dragoffsety = (((thing.objy // 16) * 16) - thing.objy) * globals.TileWidth / 16
-
         self.spriteEditorDock.setVisible(showSpritePanel)
         self.entranceEditorDock.setVisible(showEntrancePanel)
         self.locationEditorDock.setVisible(showLocationPanel)
         self.pathEditorDock.setVisible(showPathPanel)
         self.nabbitPathEditorDock.setVisible(showNabbitPathPanel)
 
-        if len(self.CurrentSelection) > 0:
-            self.actions['deselect'].setEnabled(True)
-        else:
-            self.actions['deselect'].setEnabled(False)
+        self.actions['deselect'].setEnabled(len(self.CurrentSelection) > 0)
 
         if updateModeInfo:
             globals.DirtyOverride += 1
@@ -4178,18 +4202,17 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             SetDirty()
         self.levelOverview.update()
 
-    def CreationTabChanged(self, nt):
+    def CreationTabChanged(self, idx):
         """
         Handles the selected palette tab changing
         """
-        idx = self.creationTabs.currentIndex()
         CPT = -1
         if idx == 0:  # objects
             CPT = self.objAllTab.currentIndex()
             if CPT == 1:
                 CPT = 10 # "All" objects
-        elif idx == 1:  # sprites
-            if self.sprAllTab.currentIndex() != 1: CPT = 4
+        elif idx == 1 and self.sprAllTab.currentIndex() != 1:  # sprites
+            CPT = 4
         elif idx == 2:
             CPT = 5  # entrances
         elif idx == 3:
@@ -4203,8 +4226,17 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         elif idx == 8:
             CPT = 9  # comment
 
+        type = -1
+        if CPT in (0, 2, 10):
+            index = self.objPicker.currentIndex()
+            if index.isValid():
+                if CPT == 2:
+                    type, CPT = self.objTS123Tab.getObjectAndPaintType(index.row())
+                else:
+                    type = index.row()
+
         globals.CurrentPaintType = CPT
-        globals.CurrentObject = -1
+        globals.CurrentObject = type
 
     def ObjTabChanged(self, nt):
         """
@@ -4408,7 +4440,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
                     ## Check if the object is used as a stamp
                     for stamp in self.stampChooser.model.items:
-                        layers, _ = self.getEncodedObjects(stamp.MiyamotoClip)
+                        layers, _ = self.getEncodedObjects(stamp.MiyamotoClip, False)
                         for layer in layers:
                             for obj in layer:
                                 if obj.tileset == idx and obj.type == objNum:
@@ -4421,7 +4453,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                     ## Check if the object is in the clipboard
                     if self.clipboard is not None:
                         if self.clipboard.startswith('MiyamotoClip|') and self.clipboard.endswith('|%'):
-                            layers, _ = self.getEncodedObjects(self.clipboard)
+                            layers, _ = self.getEncodedObjects(self.clipboard, False)
                             for layer in layers:
                                 for obj in layer:
                                     if obj.tileset == idx and obj.type == objNum:
@@ -4458,7 +4490,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         """
         Handles a new object being chosen
         """
-        if globals.CurrentPaintType not in [0, 10]:
+        if globals.CurrentPaintType not in (0, 10):
             globals.CurrentObject, globals.CurrentPaintType = self.objTS123Tab.getObjectAndPaintType(type)
 
         else:
@@ -4566,6 +4598,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             if oldx == x and oldy == y: return
             obj.UpdateListItem()
             SetDirty()
+        self.levelOverview.update()
 
     def SpriteDataUpdated(self, data):
         """
@@ -4649,6 +4682,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         obj.UpdateListItem()
         if obj == self.selObj:
             SetDirty()
+        self.levelOverview.update()
 
     def HandlePathPosChange(self, obj, oldx, oldy, x, y):
         """
@@ -4660,6 +4694,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         obj.UpdateListItem()
         if obj == self.selObj:
             SetDirty()
+        self.levelOverview.update()
 
     def HandleComPosChange(self, obj, oldx, oldy, x, y):
         """
@@ -4672,6 +4707,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         if obj == self.selObj:
             self.SaveComments()
             SetDirty()
+        self.levelOverview.update()
 
     def HandleComTxtChange(self, obj):
         """
@@ -4984,8 +5020,8 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         """
         if event.key() == Qt.Key_Delete or event.key() == Qt.Key_Backspace:
             sel = self.scene.selectedItems()
-            self.SelectionUpdateFlag = True
             if len(sel) > 0:
+                self.SelectionUpdateFlag = True
                 # Get the previous flower/grass type
                 oldGrassType = 5
                 for sprite in globals.Area.sprites:
@@ -5077,7 +5113,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                 globals.Area.tileset0 = ''
                 UnloadTileset(0)
 
-            self.objPicker.LoadFromTilesets()
+            HandleTilesetEdited(True)
 
             if globals.Area.tileset0 != '':
                 self.objAllTab.setCurrentIndex(0)
@@ -5149,249 +5185,32 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                 z.UpdateRects()
                 z.setPos(z.objx * (globals.TileWidth / 16), z.objy * (globals.TileWidth / 16))
 
-                if tab.Zone_xtrack.isChecked():
-                    if tab.Zone_ytrack.isChecked():
-                        if tab.Zone_camerabias.isChecked():
-                            # Xtrack, YTrack, Bias
-                            if tab.Zone_camerazoom.currentIndex() == 0:
-                                z.cammode = 0
-                                z.camzoom = 8
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 62))
-                            elif tab.Zone_camerazoom.currentIndex() == 1:
-                                z.cammode = 3
-                                z.camzoom = 9
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 63))
-                            elif tab.Zone_camerazoom.currentIndex() == 2:
-                                z.cammode = 0
-                                z.camzoom = 1
-                            elif tab.Zone_camerazoom.currentIndex() == 3:
-                                z.cammode = 0
-                                z.camzoom = 6
-                            elif tab.Zone_camerazoom.currentIndex() == 4:
-                                z.cammode = 0
-                                z.camzoom = 4
-                            elif tab.Zone_camerazoom.currentIndex() == 5:
-                                z.cammode = 0
-                                z.camzoom = 3
-                            elif tab.Zone_camerazoom.currentIndex() == 6:
-                                z.cammode = 3
-                                z.camzoom = 3
-                        else:
-                            # Xtrack, YTrack, No Bias
-                            if tab.Zone_camerazoom.currentIndex() == 0:
-                                z.cammode = 0
-                                z.camzoom = 8
-                            elif tab.Zone_camerazoom.currentIndex() == 1:
-                                z.cammode = 3
-                                z.camzoom = 9
-                            elif tab.Zone_camerazoom.currentIndex() == 2:
-                                z.cammode = 0
-                                z.camzoom = 0
-                            elif tab.Zone_camerazoom.currentIndex() == 3:
-                                z.cammode = 0
-                                z.camzoom = 7
-                            elif tab.Zone_camerazoom.currentIndex() == 4:
-                                z.cammode = 0
-                                z.camzoom = 11
-                            elif tab.Zone_camerazoom.currentIndex() == 5:
-                                z.cammode = 3
-                                z.camzoom = 2
-                            elif tab.Zone_camerazoom.currentIndex() == 6:
-                                z.cammode = 3
-                                z.camzoom = 7
-                    else:
-                        if tab.Zone_camerabias.isChecked():
-                            # Xtrack, No YTrack, Bias
-                            z.cammode = 6
-                            if tab.Zone_camerazoom.currentIndex() == 0:
-                                z.camzoom = 8
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 62))
-                            elif tab.Zone_camerazoom.currentIndex() == 1:
-                                z.camzoom = 1
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 63))
-                            elif tab.Zone_camerazoom.currentIndex() == 2:
-                                z.camzoom = 2
-                            elif tab.Zone_camerazoom.currentIndex() == 3:
-                                z.camzoom = 6
-                            elif tab.Zone_camerazoom.currentIndex() == 4:
-                                z.camzoom = 4
-                            elif tab.Zone_camerazoom.currentIndex() == 5:
-                                z.camzoom = 3
-                            elif tab.Zone_camerazoom.currentIndex() == 6:
-                                z.camzoom = 16
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 65))
-                        else:
-                            # Xtrack, No YTrack, No Bias
-                            z.cammode = 6
-                            if tab.Zone_camerazoom.currentIndex() == 0:
-                                z.camzoom = 8
-                            elif tab.Zone_camerazoom.currentIndex() == 1:
-                                z.camzoom = 0
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 64))
-                            elif tab.Zone_camerazoom.currentIndex() == 2:
-                                z.camzoom = 0
-                            elif tab.Zone_camerazoom.currentIndex() == 3:
-                                z.camzoom = 7
-                            elif tab.Zone_camerazoom.currentIndex() == 4:
-                                z.camzoom = 11
-                            elif tab.Zone_camerazoom.currentIndex() == 5:
-                                z.camzoom = 3
-                            elif tab.Zone_camerazoom.currentIndex() == 6:
-                                z.camzoom = 16
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 65))
-                else:
-                    if tab.Zone_ytrack.isChecked():
-                        if tab.Zone_camerabias.isChecked():
-                            # No Xtrack, YTrack, Bias
-                            if tab.Zone_camerazoom.currentIndex() == 0:
-                                z.cammode = 1
-                                z.camzoom = 8
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 62))
-                            elif tab.Zone_camerazoom.currentIndex() == 1:
-                                z.cammode = 4
-                                z.camzoom = 9
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 63))
-                            elif tab.Zone_camerazoom.currentIndex() == 2:
-                                z.cammode = 1
-                                z.camzoom = 1
-                            elif tab.Zone_camerazoom.currentIndex() == 3:
-                                z.cammode = 1
-                                z.camzoom = 10
-                            elif tab.Zone_camerazoom.currentIndex() == 4:
-                                z.cammode = 1
-                                z.camzoom = 4
-                            elif tab.Zone_camerazoom.currentIndex() == 5:
-                                z.cammode = 1
-                                z.camzoom = 3
-                            elif tab.Zone_camerazoom.currentIndex() == 6:
-                                z.cammode = 4
-                                z.camzoom = 3
-                        else:
-                            # No Xtrack, YTrack, No Bias
-                            if tab.Zone_camerazoom.currentIndex() == 0:
-                                z.cammode = 4
-                                z.camzoom = 8
-                            elif tab.Zone_camerazoom.currentIndex() == 1:
-                                z.cammode = 4
-                                z.camzoom = 9
-                            elif tab.Zone_camerazoom.currentIndex() == 2:
-                                z.cammode = 1
-                                z.camzoom = 0
-                            elif tab.Zone_camerazoom.currentIndex() == 3:
-                                z.cammode = 1
-                                z.camzoom = 7
-                            elif tab.Zone_camerazoom.currentIndex() == 4:
-                                z.cammode = 1
-                                z.camzoom = 11
-                            elif tab.Zone_camerazoom.currentIndex() == 5:
-                                z.cammode = 4
-                                z.camzoom = 2
-                            elif tab.Zone_camerazoom.currentIndex() == 6:
-                                z.cammode = 4
-                                z.camzoom = 7
-                    else:
-                        if tab.Zone_camerabias.isChecked():
-                            # No Xtrack, No YTrack, Bias (glitchy)
-                            if tab.Zone_camerazoom.currentIndex() == 0:
-                                z.cammode = 9
-                                z.camzoom = 8
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 66))
-                            elif tab.Zone_camerazoom.currentIndex() == 1:
-                                z.cammode = 9
-                                z.camzoom = 20
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 66))
-                            elif tab.Zone_camerazoom.currentIndex() == 2:
-                                z.cammode = 9
-                                z.camzoom = 13
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 66))
-                            elif tab.Zone_camerazoom.currentIndex() == 3:
-                                z.cammode = 9
-                                z.camzoom = 12
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 66))
-                            elif tab.Zone_camerazoom.currentIndex() == 4:
-                                z.cammode = 9
-                                z.camzoom = 14
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 66))
-                            elif tab.Zone_camerazoom.currentIndex() == 5:
-                                z.cammode = 9
-                                z.camzoom = 15
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 66))
-                            elif tab.Zone_camerazoom.currentIndex() == 6:
-                                z.cammode = 9
-                                z.camzoom = 16
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 66))
-                        else:
-                            # No Xtrack, No YTrack, No Bias (glitchy)
-                            if tab.Zone_camerazoom.currentIndex() == 0:
-                                z.cammode = 9
-                                z.camzoom = 8
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 67))
-                            elif tab.Zone_camerazoom.currentIndex() == 1:
-                                z.cammode = 9
-                                z.camzoom = 19
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 67))
-                            elif tab.Zone_camerazoom.currentIndex() == 2:
-                                z.cammode = 9
-                                z.camzoom = 13
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 67))
-                            elif tab.Zone_camerazoom.currentIndex() == 3:
-                                z.cammode = 9
-                                z.camzoom = 12
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 67))
-                            elif tab.Zone_camerazoom.currentIndex() == 4:
-                                z.cammode = 9
-                                z.camzoom = 14
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 67))
-                            elif tab.Zone_camerazoom.currentIndex() == 5:
-                                z.cammode = 9
-                                z.camzoom = 15
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 67))
-                            elif tab.Zone_camerazoom.currentIndex() == 6:
-                                z.cammode = 9
-                                z.camzoom = 16
-                                QtWidgets.QMessageBox.warning(None, globals.trans.string('ZonesDlg', 61),
-                                                              globals.trans.string('ZonesDlg', 67))
+                z.cammode = tab.Zone_cammodebuttongroup.checkedId()
+                z.camzoom = tab.Zone_screenheights.currentIndex()
+                z.unk1 = tab.Zone_camunk1.value()
 
                 z.visibility = tab.Zone_visibility.currentIndex()
                 if tab.Zone_vspotlight.isChecked():
-                    z.visibility = z.visibility + 16
+                    z.visibility |= 0x10
                 if tab.Zone_vfulldark.isChecked():
-                    z.visibility = z.visibility + 32
+                    z.visibility |= 0x20
 
+                z.unk2 = tab.Zone_camunk2.value()
                 z.camtrack = tab.Zone_directionmode.currentIndex()
+                z.unk3 = tab.Zone_camunk3.value()
 
-                z.yupperbound = tab.Zone_yboundup.value()
-                z.ylowerbound = tab.Zone_ybounddown.value()
-                z.yupperbound2 = tab.Zone_yboundup2.value()
-                z.ylowerbound2 = tab.Zone_ybounddown2.value()
-                z.unknownbnf = 0xF if tab.Zone_boundflg.isChecked() else 0
+                z.yupperbound = tab.Zone_yboundup.value() - 80
+                z.ylowerbound = -tab.Zone_ybounddown.value() + 72
+                z.yupperbound2 = tab.Zone_yboundup2.value() - 88
+                z.ylowerbound2 = -tab.Zone_ybounddown2.value() + 88
+                z.yupperbound3 = tab.Zone_yboundup3.value()
+                z.ylowerbound3 = -tab.Zone_ybounddown3.value()
+                z.mpcamzoomadjust = 0xF if tab.Zone_boundflg.isChecked() else tab.Zone_mpzoomadjust.value()
 
                 z.music = tab.Zone_musicid.value()
-                z.sfxmod = (tab.Zone_sfx.currentIndex() * 16)
+                z.sfxmod = (tab.Zone_sfx.currentIndex() & 0x0F) << 4
                 if tab.Zone_boss.isChecked():
-                    z.sfxmod = z.sfxmod + 1
+                    z.sfxmod |= 1
 
                 z.type = 0
                 for i in range(8):
@@ -5399,11 +5218,11 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
                         z.type |= 1 << i
 
                 name = bgTab.bgFname.text()
-                unk1 = bgTab.unk1.value()
-                unk2 = bgTab.unk2.value()
-                unk3 = bgTab.unk3.value()
-                unk4 = bgTab.unk4.value()
-                z.background = (z.id, unk1, unk2, unk3, to_bytes(name, 16), unk4)
+                xPos = bgTab.xPos.value()
+                yPos = bgTab.yPos.value()
+                zPos = bgTab.zPos.value()
+                parallaxMode = bgTab.parallaxMode.currentIndex()
+                z.background = (z.id, xPos, yPos, zPos, to_bytes(name, 16), parallaxMode)
 
                 if not ygn2Used:
                     ygn2Used = name == "Yougan_2"
@@ -5411,6 +5230,16 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
             if ygn2Used:
                 QtWidgets.QMessageBox.information(None, globals.trans.string('BGDlg', 22),
                                                   globals.trans.string('BGDlg', 23))
+
+            for spr in globals.Area.sprites:
+                if isinstance(spr.ImageObj, SLib.SpriteImage_MovementControlled):
+                    if spr.ImageObj.controller:
+                        spr.ImageObj.controller = None
+
+                    spr.UpdateDynamicSizing()
+
+                else:
+                    spr.ImageObj.positionChanged()
 
         self.levelOverview.update()
 
@@ -5420,65 +5249,84 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
         """
 
         dlg = ScreenCapChoiceDialog()
-        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+
+        sType = dlg.zoneCombo.currentIndex()
+        hideBackground = dlg.hideBackground.isChecked()
+        saveImage = dlg.saveImage.isChecked()
+        saveClip = dlg.saveClip.isChecked()
+
+        if saveImage:
             fn = QtWidgets.QFileDialog.getSaveFileName(self, globals.trans.string('FileDlgs', 3), '/untitled.png',
                                                        globals.trans.string('FileDlgs', 4) + ' (*.png)')[0]
-            if fn == '': return
-            fn = str(fn)
+            if fn == '' and not saveClip:
+                return
 
-            if dlg.zoneCombo.currentIndex() == 0:
-                ScreenshotImage = QtGui.QImage(self.view.width(), self.view.height(),
-                                               QtGui.QImage.Format_ARGB32)
-                ScreenshotImage.fill(Qt.transparent)
+        if sType == 0:
+            source = QtCore.QRect(QtCore.QPoint(), self.view.size())
+            widget = self.view
 
-                RenderPainter = QtGui.QPainter(ScreenshotImage)
-                self.view.render(RenderPainter,
-                                       QtCore.QRectF(0, 0, self.view.width(), self.view.height()),
-                                       QtCore.QRect(QtCore.QPoint(0, 0),
-                                                    QtCore.QSize(self.view.width(), self.view.height())))
-                RenderPainter.end()
-            elif dlg.zoneCombo.currentIndex() == 1:
-                maxX = maxY = 0
-                minX = minY = 0x0ddba11
+        else:
+            if sType == 1:
+                source = QtCore.QRectF()
                 for z in globals.Area.zones:
-                    if maxX < ((z.objx * (globals.TileWidth / 16)) + (z.width * (globals.TileWidth / 16))):
-                        maxX = ((z.objx * (globals.TileWidth / 16)) + (z.width * (globals.TileWidth / 16)))
-                    if maxY < ((z.objy * (globals.TileWidth / 16)) + (z.height * (globals.TileWidth / 16))):
-                        maxY = ((z.objy * (globals.TileWidth / 16)) + (z.height * (globals.TileWidth / 16)))
-                    if minX > z.objx * (globals.TileWidth / 16):
-                        minX = z.objx * (globals.TileWidth / 16)
-                    if minY > z.objy * (globals.TileWidth / 16):
-                        minY = z.objy * (globals.TileWidth / 16)
-                maxX = (1024 * globals.TileWidth if 1024 * globals.TileWidth < maxX + 40 else maxX + 40)
-                maxY = (512 * globals.TileWidth if 512 * globals.TileWidth < maxY + 40 else maxY + 40)
-                minX = (0 if 40 > minX else minX - 40)
-                minY = (40 if 40 > minY else minY - 40)
-
-                ScreenshotImage = QtGui.QImage(int(maxX - minX), int(maxY - minY), QtGui.QImage.Format_ARGB32)
-                ScreenshotImage.fill(Qt.transparent)
-
-                RenderPainter = QtGui.QPainter(ScreenshotImage)
-                self.scene.render(RenderPainter, QtCore.QRectF(0, 0, int(maxX - minX), int(maxY - minY)),
-                                        QtCore.QRectF(int(minX), int(minY), int(maxX - minX), int(maxY - minY)))
-                RenderPainter.end()
-
-
+                    source |= z.sceneBoundingRect()
             else:
-                i = dlg.zoneCombo.currentIndex() - 2
-                ScreenshotImage = QtGui.QImage(globals.Area.zones[i].width * globals.TileWidth / 16,
-                                               globals.Area.zones[i].height * globals.TileWidth / 16, QtGui.QImage.Format_ARGB32)
-                ScreenshotImage.fill(Qt.transparent)
+                source = globals.Area.zones[sType - 2].sceneBoundingRect()
 
-                RenderPainter = QtGui.QPainter(ScreenshotImage)
-                self.scene.render(RenderPainter, QtCore.QRectF(0, 0, globals.Area.zones[i].width * globals.TileWidth / 16,
-                                                                     globals.Area.zones[i].height * globals.TileWidth / 16),
-                                        QtCore.QRectF(int(globals.Area.zones[i].objx) * globals.TileWidth / 16,
-                                                      int(globals.Area.zones[i].objy) * globals.TileWidth / 16,
-                                                      globals.Area.zones[i].width * globals.TileWidth / 16,
-                                                      globals.Area.zones[i].height * globals.TileWidth / 16))
-                RenderPainter.end()
+            pad = round(5 * globals.TileWidth / 3)
+            source += QtCore.QMarginsF(pad, pad, pad, pad)
+            source &= QtCore.QRectF(0, 0, 1024 * globals.TileWidth, 512 * globals.TileWidth)
+            widget = self.scene
 
-            ScreenshotImage.save(fn, 'PNG', 50)
+            if globals.RotationShown:
+                sceneRect = (QtGui.QTransform() / globals.TileWidth).mapRect(source)
+                movementControlledType = SLib.SpriteImage_MovementControlled
+
+                globals.OverrideSnapping = True
+                globals.DirtyOverride += 1
+                for spr in globals.Area.sprites:
+                    imageObj = spr.ImageObj
+                    if isinstance(imageObj, movementControlledType):
+                        controller = spr.ImageObj.controller
+                        if controller and controller.active() and sceneRect.intersects(controller.parent.LevelRect | spr.LevelRect):
+                            spr.UpdateDynamicSizing()
+                globals.DirtyOverride -= 1
+                globals.OverrideSnapping = False
+
+                self.levelOverview.update()
+
+        screenshot = QtGui.QImage(source.size().toSize() if isinstance(source, QtCore.QRectF) else source.size(), QtGui.QImage.Format_ARGB32)
+        screenshot.fill(Qt.transparent)
+
+        painter = QtGui.QPainter(screenshot)
+
+        if hideBackground:
+            # Remove the background
+            brush = self.scene.backgroundBrush()
+            style = brush.style()
+            brush.setStyle(Qt.NoBrush)
+            self.scene.setBackgroundBrush(brush)
+
+            # Render
+            widget.render(painter, source=source)
+
+            # Restore the background
+            brush.setStyle(style)
+            self.scene.setBackgroundBrush(brush)
+
+        else:
+            # Render with background
+            widget.render(painter, source=source)
+
+        painter.end()
+
+        if saveImage:
+            screenshot.save(fn, 'PNG')
+
+        if saveClip:
+            globals.app.clipboard().setImage(screenshot)
 
     def showPuzzleWindow(self, name, data, slot, con=False):
         pw = PuzzleWindow(name, data, slot, con, Qt.Dialog)
@@ -5527,7 +5375,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
                 LoadTileset(0, globals.Area.tileset0)
                 SetDirty()
-                self.objPicker.LoadFromTilesets()
+                HandleTilesetEdited(True)
 
                 if globals.Area.tileset0 != '':
                     self.objAllTab.setCurrentIndex(0)
@@ -5600,7 +5448,7 @@ class MiyamotoWindow(QtWidgets.QMainWindow):
 
         else:
             if not eval('globals.Area.tileset%d' % slot):
-                exec("globals.Area.tileset%d = generateTilesetNames()[%d]" % (slot, slot - 1))
+                exec("globals.Area.tileset%d = 'Pa%d_MIYAMOTO_TEMP'" % (slot, slot))
                 con = True
 
             sarcfile = 'None'
@@ -5616,15 +5464,26 @@ def main():
     Main startup function for Miyamoto
     """
 
-    # create an application
+    # Set High-DPI-Displays-related attributes before creating an application
+    QtGui.QGuiApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    if hasattr(QtGui.QGuiApplication, 'setHighDpiScaleFactorRoundingPolicy'):
+        QtGui.QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.Round)
+
+    # Create an application
     globals.app = QtWidgets.QApplication(sys.argv)
 
-    # go to the script path
+    # Go to the script path
     path = globals.miyamoto_path
     if path is not None:
         os.chdir(path)
 
-    # load the settings
+    # Create backup of settings
+    if os.path.isfile('settings.ini'):
+        from shutil import copy2
+        copy2('settings.ini', 'settings.ini.bak')
+        del copy2
+
+    # Load the settings
     globals.settings = QtCore.QSettings('settings.ini', QtCore.QSettings.IniFormat)
 
     # Check the version and set the UI style to Fusion by default
@@ -5639,17 +5498,17 @@ def main():
         warningBox.exec_()
         sys.exit(1)
 
-    # load the translation (needs to happen first)
+    # Load the translation (needs to happen first)
     LoadTranslation()
 
-    # set the default theme, plus some other stuff too
+    # Set the default theme, plus some other stuff too
     globals.theme = MiyamotoTheme()
 
-    # check if required files are missing
+    # Check if required files are missing
     if FilesAreMissing():
         sys.exit(1)
 
-    # load required stuff
+    # Load required stuff
     globals.Sprites = None
     globals.SpriteListData = None
     LoadGameDef(setting('LastGameDef'))
@@ -5695,7 +5554,9 @@ def main():
     globals.CommentsShown = setting('ShowComments', True)
     globals.PathsShown = setting('ShowPaths', True)
     globals.isEmbeddedSeparate = setting('isEmbeddedSeparate', False)
-    globals.modifyInnerName = setting('ModifyInnerName', True)
+    globals.RotationShown = setting('RotationShown', False)
+    globals.RotationNoticeShown = setting('RotationNoticeShown', True)
+    SLib.RotationFPS = setting('RotationFPS', 30)
 
     if globals.libyaz0_available:
         globals.CompLevel = setting('CompLevel', 1)
@@ -5738,7 +5599,7 @@ def main():
     LoadTheme()
     SetAppStyle()
 
-    # create and show the main window
+    # Create and show the main window
     globals.mainWindow = MiyamotoWindow()
     globals.mainWindow.__init2__()  # fixes bugs
     globals.mainWindow.show()

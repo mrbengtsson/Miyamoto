@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Miyamoto! Level Editor - New Super Mario Bros. U Level Editor
-# Copyright (C) 2009-2020 Treeki, Tempus, angelsl, JasonP27, Kinnay,
+# Copyright (C) 2009-2021 Treeki, Tempus, angelsl, JasonP27, Kinnay,
 # MalStar1000, RoadrunnerWMC, MrRean, Grop, AboodXD, Gota7, John10v10,
 # mrbengtsson
 
@@ -54,7 +54,7 @@ class Stamp:
         """
         minX, minY, maxX, maxY = 24576, 12288, 0, 0
 
-        layers, sprites = globals.mainWindow.getEncodedObjects(self.MiyamotoClip)
+        layers, sprites = globals.mainWindow.getEncodedObjects(self.MiyamotoClip, False)
 
         # Go through the sprites and find the maxs and mins
         for spr in sprites:

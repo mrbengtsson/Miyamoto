@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Miyamoto! Level Editor - New Super Mario Bros. U Level Editor
-# Copyright (C) 2009-2020 Treeki, Tempus, angelsl, JasonP27, Kinnay,
+# Copyright (C) 2009-2021 Treeki, Tempus, angelsl, JasonP27, Kinnay,
 # MalStar1000, RoadrunnerWMC, MrRean, Grop, AboodXD, Gota7, John10v10,
 # mrbengtsson
 
@@ -78,12 +78,53 @@ def LoadLevelNames():
     """
     Ensures that the level name info is loaded
     """
-    # Parse the file
-    tree = etree.parse(GetPath('levelnames'))
-    root = tree.getroot()
+    paths, isPatch = globals.gamedef.recursiveFiles('levelnames', True)
+    if isPatch:
+        paths = [globals.trans.files['levelnames']] + paths
 
-    # Parse the nodes (root acts like a large category)
-    globals.LevelNames = LoadLevelNames_Category(root)
+    globals.LevelNames = []
+
+    for path in paths:
+        # Parse the file
+        tree = etree.parse( path )
+        root = tree.getroot()
+
+        # Parse the nodes (root acts like a large category)
+        patchLevelNames = LoadLevelNames_Category(root)
+        LoadLevelNames_ReplaceCategory(globals.LevelNames, patchLevelNames)
+        LoadLevelNames_AddMissingCategories(globals.LevelNames, patchLevelNames)
+
+
+def LoadLevelNames_ReplaceCategory(node, node_patch):
+    for child in node:
+        for child_patch in node_patch:
+            if isinstance(child[1], list) and isinstance(child_patch[1], list) and child[0] == child_patch[0]:
+                LoadLevelNames_ReplaceCategory(child[1], child_patch[1])
+                break
+            elif isinstance(child[1], str) and isinstance(child_patch[1], str) and child[1] == child_patch[1]:
+                child[0] = child_patch[0]
+                break
+
+
+def LoadLevelNames_AddMissingCategories(node, node_patch):
+    for child_patch in node_patch:
+        if isinstance(child_patch[1], list):
+            found = False
+            for child in node:
+                if isinstance(child[1], list) and child[0] == child_patch[0]:
+                    found = True
+                    break
+            if found:
+                LoadLevelNames_AddMissingCategories(child[1], child_patch[1])
+            else:
+                node += [child_patch]
+
+        else:
+            for child in node:
+                if isinstance(child[1], str) and child[1] == child_patch[1]:
+                    break
+            else:
+                node += [child_patch]
 
 
 def LoadLevelNames_Category(node):
@@ -93,10 +134,10 @@ def LoadLevelNames_Category(node):
     cat = []
     for child in node:
         if child.tag.lower() == 'category':
-            cat.append((str(child.attrib['name']), LoadLevelNames_Category(child)))
+            cat.append([str(child.attrib['name']), LoadLevelNames_Category(child)])
         elif child.tag.lower() == 'level':
-            cat.append((str(child.attrib['name']), str(child.attrib['file'])))
-    return tuple(cat)
+            cat.append([str(child.attrib['name']), str(child.attrib['file'])])
+    return cat
 
 
 def LoadTilesetNames(reload_=False):
@@ -279,7 +320,11 @@ def LoadSpriteData():
 
             # Apply it
             for spriteid, name in data:
-                globals.Sprites[int(spriteid)].name = name
+                try:
+                    globals.Sprites[int(spriteid)].name = name
+                except Exception as e:
+                    errors.append(spriteid)
+                    errortext.append(str(e))
 
     # Warn the user if errors occurred
     if len(errors) > 0:
@@ -427,8 +472,6 @@ def _LoadTileset(idx, name):
     sarc = SarcLib.SARC_Archive()
     sarc.load(sarcdata)
 
-    tileoffset = idx * 256
-
     # Decompress the textures
     try:
         comptiledata = sarc['BG_tex/%s.gtx' % name].data
@@ -456,6 +499,7 @@ def _LoadTileset(idx, name):
     dest2 = QtGui.QPixmap.fromImage(nml)
     sourcex = 0
     sourcey = 0
+    tileoffset = idx * 256
     for i in range(tileoffset, tileoffset + 256):
         T = TilesetTile(getTileFromImage(dest, sourcex, sourcey), getTileFromImage(dest2, sourcex, sourcey))
         T.setCollisions(struct.unpack_from('<Q', colldata, (i - tileoffset) * 8)[0])
@@ -465,51 +509,38 @@ def _LoadTileset(idx, name):
             sourcex = 0
             sourcey += 1
 
-    def exists(fn):
-        nonlocal sarc
-
-        try:
-            sarc[fn]
-
-        except KeyError:
-            return False
-
-        return True
-    
     # Load the tileset animations, if there are any
     if idx == 0:
-        tileoffset = idx * 256
-
         hatena_anime = None
         block_anime = None
         tuka_coin_anime = None
         belt_conveyor_anime = None
 
-        fn = 'BG_tex/hatena_anime.gtx'
-        found = exists(fn)
+        try:
+            hatena_anime = loadGTX(sarc['BG_tex/hatena_anime.gtx'].data)
 
-        if found:
-            hatena_anime = loadGTX(sarc[fn].data)
+        except:
+            pass
 
-        fn = 'BG_tex/block_anime.gtx'
-        found = exists(fn)
+        try:
+            block_anime = loadGTX(sarc['BG_tex/block_anime.gtx'].data)
 
-        if found:
-            block_anime = loadGTX(sarc[fn].data)
+        except:
+            pass
 
-        fn = 'BG_tex/tuka_coin_anime.gtx'
-        found = exists(fn)
+        try:
+            tuka_coin_anime = loadGTX(sarc['BG_tex/tuka_coin_anime.gtx'].data)
 
-        if found:
-            tuka_coin_anime = loadGTX(sarc[fn].data)
+        except:
+            pass
 
-        fn = 'BG_tex/belt_conveyor_anime.gtx'
-        found = exists(fn)
+        try:
+            belt_conveyor_anime = loadGTX(sarc['BG_tex/belt_conveyor_anime.gtx'].data, True)
 
-        if found:
-            belt_conveyor_anime = loadGTX(sarc[fn].data, True)
+        except:
+            pass
 
-        for i in range(tileoffset, tileoffset + 256):
+        for i in range(256):
             if globals.Tiles[i].coreType == 7:
                 if hatena_anime:
                     globals.Tiles[i].addAnimationData(hatena_anime)
@@ -674,13 +705,13 @@ def LoadGameDef(name=None, dlg=None):
         LoadTilesetNames(True)  # reloads tileset names
 
         # Load sprites.py
+        SLib.SpritesFolders = globals.gamedef.recursiveFiles('sprites', False, True)
+
+        SLib.ImageCache.clear()
+        SLib.SpriteImagesLoaded.clear()
+        SLib.loadVines()
+
         if globals.Area is not None:
-            SLib.SpritesFolders = globals.gamedef.recursiveFiles('sprites', False, True)
-
-            SLib.ImageCache.clear()
-            SLib.SpriteImagesLoaded.clear()
-            SLib.loadVines()
-
             spriteClasses = globals.gamedef.getImageClasses()
 
             for s in globals.Area.sprites:
@@ -697,8 +728,7 @@ def LoadGameDef(name=None, dlg=None):
                 else:
                     s.setImageObj(SLib.SpriteImage)
 
-        # Reload the sprite-picker text
-        if globals.Area is not None:
+            # Reload the sprite-picker text
             for spr in globals.Area.sprites:
                 spr.UpdateListItem()  # Reloads the sprite-picker text
 
@@ -758,6 +788,7 @@ def LoadActionsLists():
         (globals.trans.string('MenuItems', 52), True, 'showlay2'),
         (globals.trans.string('MenuItems', 54), True, 'showsprites'),
         (globals.trans.string('MenuItems', 56), False, 'showspriteimages'),
+        (globals.trans.string('MenuItems', 150), True, 'showrotation'),
         (globals.trans.string('MenuItems', 58), True, 'showlocations'),
         (globals.trans.string('MenuItems', 138), True, 'showpaths'),
         (globals.trans.string('MenuItems', 60), True, 'grid'),

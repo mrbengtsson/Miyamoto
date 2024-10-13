@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Miyamoto! Level Editor - New Super Mario Bros. U Level Editor
-# Copyright (C) 2009-2020 Treeki, Tempus, angelsl, JasonP27, Kinnay,
+# Copyright (C) 2009-2021 Treeki, Tempus, angelsl, JasonP27, Kinnay,
 # MalStar1000, RoadrunnerWMC, MrRean, Grop, AboodXD, Gota7, John10v10,
 # mrbengtsson
 
@@ -30,10 +30,14 @@
 
 ############ Imports ############
 
+from math import sin, cos, sqrt
 import os.path
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 Qt = QtCore.Qt
+QTransform = QtGui.QTransform
+
+import globals
 
 #################################
 
@@ -44,12 +48,13 @@ ImageCache = {}
 Tiles = {}
 TileWidth = 60
 SpriteImagesLoaded = set()
-MapPositionToZoneID = None
 
 SpritesFolders = []
 RealViewEnabled = False
 Area = None
-
+RotationTimer = None
+RotationFrame = 0
+RotationFPS = 30
 
 ################################################################
 ################################################################
@@ -65,11 +70,43 @@ def loadVines():
     loadIfNotInImageCache('VineBtm', 'vine_btm.png')
 
 
+def updateMovement():
+    """
+    Updates movement-controlled sprites
+    """
+    global RotationFrame
+    RotationFrame += 1
+
+    mainWindow = globals.mainWindow
+    view = mainWindow.view
+    size = view.size()
+
+    movementControlledType = SpriteImage_MovementControlled
+
+    scale = 24 * mainWindow.ZoomLevel / 100.0
+    windowRect = QtCore.QRectF(view.XScrollBar.value() / scale,
+                               view.YScrollBar.value() / scale,
+                               size.width() / scale, size.height() / scale)
+
+    globals.OverrideSnapping = True
+    globals.DirtyOverride += 1
+    for spr in globals.Area.sprites:
+        imageObj = spr.ImageObj
+        if isinstance(imageObj, movementControlledType):
+            controller = spr.ImageObj.controller
+            if controller and controller.active() and windowRect.intersects(controller.parent.LevelRect | spr.LevelRect):
+                spr.UpdateDynamicSizing()
+    globals.DirtyOverride -= 1
+    globals.OverrideSnapping = False
+
+    mainWindow.levelOverview.update()
+
+
 def main():
     """
     Resets Sprites.py to its original settings
     """
-    global OutlineColor, OutlinePen, OutlineBrush, ImageCache, SpritesFolders
+    global OutlineColor, OutlinePen, OutlineBrush, ImageCache, SpritesFolders, RotationTimer
     OutlinePen = QtGui.QPen(OutlineColor, 4 * (TileWidth/24))
     OutlineBrush = QtGui.QBrush(OutlineColor)
 
@@ -84,6 +121,9 @@ def main():
     loadVines()
 
     SpritesFolders = []
+
+    RotationTimer = QtCore.QTimer()
+    RotationTimer.timeout.connect(updateMovement)
 
 
 def GetImg(imgname, image=False):
@@ -119,33 +159,25 @@ def MapPositionToZoneID(zones, x, y, useid=False):
     """
     Returns the zone ID containing or nearest the specified position
     """
-    id = 0
+    f_sqrt = sqrt
     minimumdist = -1
     rval = -1
 
-    for zone in zones:
+    for id, zone in enumerate(zones):
         r = zone.ZoneRect
-        if r.contains(x, y) and useid:
-            return zone.id
-        elif r.contains(x, y) and not useid:
-            return id
+        if r.contains(x, y):
+            return zone.id if useid else id
 
-        xdist = 0
-        ydist = 0
-        if x <= r.left(): xdist = r.left() - x
-        if x >= r.right(): xdist = x - r.right()
-        if y <= r.top(): ydist = r.top() - y
-        if y >= r.bottom(): ydist = y - r.bottom()
+        l, t, r, b = r.getCoords()
 
-        dist = (xdist ** 2 + ydist ** 2) ** 0.5
+        xdist = l - x if x < l else x - r if x > r else 0
+        ydist = t - y if y < t else y - b if y > b else 0
+        dist = ydist if xdist == 0 else xdist if ydist == 0 else f_sqrt(xdist * xdist + ydist * ydist)
         if dist < minimumdist or minimumdist == -1:
             minimumdist = dist
-            rval = zone.id
+            rval = id
 
-        id += 1
-
-    return rval
-
+    return zones[rval].id if useid and rval != -1 else rval
 
 
 ################################################################
@@ -194,6 +226,12 @@ class SpriteImage:
     def paint(self, painter):
         """
         Paints the sprite
+        """
+        pass
+
+    def delete(self):
+        """
+        Called when the sprite is deleted
         """
         pass
 
@@ -253,9 +291,7 @@ class SpriteImage_Liquid(SpriteImage):
             self.size = (
                 (self.image.width() / self.scale) + 1,
                 (self.image.height() / self.scale) + 2,
-                )
-        else:
-            del self.size
+            )
 
     def paint(self, painter):
         super().paint(painter)
@@ -292,9 +328,7 @@ class SpriteImage_Static(SpriteImage):
             self.size = (
                 (self.image.width() / self.scale) + 1,
                 (self.image.height() / self.scale) + 2,
-                )
-        else:
-            del self.size
+            )
 
     def paint(self, painter):
         super().paint(painter)
@@ -308,17 +342,6 @@ class SpriteImage_Static(SpriteImage):
         painter.restore()
 
 
-class SpriteImage_MovementController(SpriteImage_Static):
-    """
-    A special class for movement controllers
-    """
-    def __init__(self, parent, scale=None, image=None):
-        super().__init__(parent, scale, image)
-
-    def getMovementID(self):
-        return self.parent.spritedata[10]
-
-
 class SpriteImage_StaticMultiple(SpriteImage_Static):
     """
     A class that acts like a SpriteImage_Static but lets you change
@@ -327,6 +350,233 @@ class SpriteImage_StaticMultiple(SpriteImage_Static):
     def __init__(self, parent, scale=None, image=None, offset=None):
         super().__init__(parent, scale, image, offset)
     # no other changes needed yet
+
+
+class SpriteImage_MovementController(SpriteImage_StaticMultiple):
+    """
+    A special class for movement controllers
+    """
+    def __init__(self, parent, scale=None, image=None):
+        super().__init__(parent, scale, image)
+
+        self.controlled = []
+        self.previousId = 0
+        self.deleted = False
+
+        self.parent.setZValue(500000)
+
+    def getMovementID(self):
+        return self.parent.spritedata[10]
+
+    def getStartRotation(self):
+        return 0
+
+    def getPivot(self):
+        return (self.parent.objx + 8, self.parent.objy + 8)
+
+    def active(self):
+        return False
+
+    def updateControlled(self):
+        for controlled in self.controlled:
+            controlled.parent.UpdateDynamicSizing()
+
+    def detachControlled(self):
+        if self.controlled:
+            for controlled in self.controlled:
+                controlled.controller = None
+                controlled.parent.UpdateDynamicSizing()
+
+            self.controlled = []
+
+        for sprite in globals.Area.sprites:
+            if isinstance(sprite.ImageObj, SpriteImage_MovementControlled) and not sprite.ImageObj.controller:
+                sprite.UpdateDynamicSizing()
+
+    def dataChanged(self):
+        id = self.getMovementID()
+        if id != self.previousId:
+            self.previousId = id
+            self.detachControlled()
+
+        else:
+            self.updateControlled()
+
+        super().dataChanged()
+
+    def positionChanged(self):
+        self.updateControlled()
+
+    def delete(self):
+        self.deleted = True
+        self.detachControlled()
+
+
+class SpriteImage_MovementControlled(SpriteImage_StaticMultiple):
+    """
+    A class to handle movement-controlled sprites
+    and apply the movement to them (rotation, for now)
+    """
+
+    # If set to False, the image/AUX will be moved around but not rotated
+    affectImage = True
+    affectAUXImage = True
+
+    affectedByIdZero = True
+
+    def __init__(self, parent, scale=None, image=None, offset=None):
+        super().__init__(parent, scale, image, offset)
+
+        self.controller = None
+
+    def getMovementID(self):
+        return self.parent.spritedata[10]
+
+    def allowedMovementControllers(self):
+        return tuple()
+
+    def findController(self):
+        zoneId = self.parent.nearestZone()
+        if zoneId == -1:
+            self.controller = None
+            return
+
+        types = self.allowedMovementControllers()
+        if not types:
+            self.controller = None
+            return
+
+        for sprite in globals.Area.sprites:
+            if ( sprite.nearestZone() == zoneId and sprite.type in types
+                 and isinstance(sprite.ImageObj, SpriteImage_MovementController) ):
+                if not sprite.ImageObj.deleted and sprite.ImageObj.getMovementID() == self.getMovementID():
+                    if not self.affectedByIdZero and sprite.ImageObj.getMovementID() == 0:
+                        continue
+                    self.controller = sprite.ImageObj
+                    sprite.ImageObj.controlled.append(self)
+                    break
+
+        else:
+            self.controller = None
+
+    def unhookController(self):
+        if self.controller:
+            self.controller.controlled.remove(self)
+            self.controller = None
+
+    def dataChanged(self):
+        # Find and hook the controller
+        if not self.controller or self.controller.getMovementID() != self.getMovementID():
+            self.unhookController()
+            self.findController()
+
+        parent = self.parent
+
+        if self.controller and globals.RotationShown:
+            # The angle of the rotation to be performed
+            angle = self.controller.getStartRotation()
+
+            # The pivot of the rotation in 16x16
+            pivotX, pivotY = self.controller.getPivot()
+
+            # The pivot of the rotation, scaled to TileWidthxTileWidth, relative to this object
+            originX = (pivotX * self.scale) - parent.x()
+            originY = (pivotY * self.scale) - parent.y()
+
+            # Set the rotation origin point and apply rotation
+            parent.setTransformOriginPoint(originX, originY)
+            parent.setRotation(angle)
+            parent.resetTransform()
+
+            # Bounding Rect without transformations
+            boundingRect = parent.boundingRect()
+            # Bounding Rect with transformations
+            sceneBoundingRect = parent.sceneBoundingRect()
+            # Distance from the old center to the new center
+            deltaX = (sceneBoundingRect.x() + sceneBoundingRect.width() / 2) - (parent.x() + boundingRect.width() / 2)
+            deltaY = (sceneBoundingRect.y() + sceneBoundingRect.height() / 2) - (parent.y() + boundingRect.height() / 2)
+
+            if self.affectImage:
+                # The pivot of the rotation, relative to the object after moving
+                auxOriginDeltaX = originX - deltaX
+                auxOriginDeltaY = originY - deltaY
+
+                nAngle = -angle
+
+                # The translation to apply instead of rotation
+                transform = QTransform.fromTranslate(deltaX, deltaY)
+
+                for aux in self.aux:
+                    if self.affectAUXImage and not aux.gyro:
+                        # Reset transformations that might have been set due to affectAUXImage changing from False to True
+                        aux.resetTransform()
+                        aux.setTransformOriginPoint(0, 0)
+                        aux.setRotation(0)
+
+                    else:
+                        # Reverse parent transformations
+                        aux.setTransformOriginPoint(auxOriginDeltaX - aux.x(), auxOriginDeltaY - aux.y())
+                        aux.setRotation(nAngle)
+
+                        # Apply special transformations to AUX
+                        aux.setTransform(transform)
+
+            else:
+                # Undo the rotation since we only did it to acquire the new position of the center after rotation
+                parent.setTransformOriginPoint(0, 0)
+                parent.setRotation(0)
+
+                # Apply translation instead of rotation
+                parent.setTransform(QTransform.fromTranslate(deltaX, deltaY))
+
+                nDeltaX = -deltaX
+                nDeltaY = -deltaY
+
+                for aux in self.aux:
+                    if self.affectAUXImage and not aux.gyro:
+                        # Reverse parent transformations
+                        aux.setTransform(QTransform.fromTranslate(nDeltaX, nDeltaY))
+
+                        # Apply special transformations to AUX
+                        aux.setTransformOriginPoint(originX - aux.x(), originY - aux.y())
+                        aux.setRotation(angle)
+
+                    else:
+                        # Reset transformations that might have been set due to affectAUXImage changing from True to False
+                        aux.resetTransform()
+                        aux.setTransformOriginPoint(0, 0)
+                        aux.setRotation(0)
+
+            # Prevent this object from being movable if rotated
+            parent.setFlag(QtWidgets.QGraphicsItem.ItemIsMovable, False)
+
+        else:
+            # Reset all transformations
+            parent.resetTransform()
+            parent.setTransformOriginPoint(0, 0)
+            parent.setRotation(0)
+
+            for aux in self.aux:
+                aux.resetTransform()
+                aux.setTransformOriginPoint(0, 0)
+                aux.setRotation(0)
+
+            # Reset movable flag
+            parent.setFlag(QtWidgets.QGraphicsItem.ItemIsMovable, not globals.SpritesFrozen)
+
+        super().dataChanged()
+
+
+    def positionChanged(self):
+        self.parent.UpdateDynamicSizing()
+
+    def delete(self):
+        self.unhookController()
+
+
+class SpriteImage_PivotRotationControlled(SpriteImage_MovementControlled):
+    def allowedMovementControllers(self):
+        return 68, 116, 69, 118
 
 
 ################################################################
@@ -459,6 +709,7 @@ class AuxiliarySpriteItem(AuxiliaryItem, QtWidgets.QGraphicsItem):
         self.setFlag(QtWidgets.QGraphicsItem.ItemStacksBehindParent, True)
         self.setParentItem(parent)
         self.hover = False
+        self.gyro = False
 
         self.BoundingRect = QtCore.QRectF(0, 0, TileWidth, TileWidth)
 
@@ -513,14 +764,14 @@ class AuxiliaryTrackObject(AuxiliarySpriteItem):
 
         if self.direction == self.Horizontal:
             lineY = self.height * 0.75 * (TileWidth/24)
-            painter.drawLine(20 * (TileWidth/24), lineY, (self.width * (TileWidth/16)) - 20 * (TileWidth/24), lineY)
-            painter.drawEllipse(8 * (TileWidth/24), lineY - 4 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24))
-            painter.drawEllipse((self.width * (TileWidth/16)) - 16 * (TileWidth/24), lineY - 4 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24))
+            painter.drawLine(QtCore.QLineF(20 * (TileWidth/24), lineY, (self.width * (TileWidth/16)) - 20 * (TileWidth/24), lineY))
+            painter.drawEllipse(QtCore.QRectF(8 * (TileWidth/24), lineY - 4 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24)))
+            painter.drawEllipse(QtCore.QRectF((self.width * (TileWidth/16)) - 16 * (TileWidth/24), lineY - 4 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24)))
         else:
             lineX = self.width * 0.75 * (TileWidth/24)
-            painter.drawLine(lineX, 20 * (TileWidth/24), lineX, (self.height * (TileWidth/16)) - 20 * (TileWidth/24))
-            painter.drawEllipse(lineX - 4 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24))
-            painter.drawEllipse(lineX - 4 * (TileWidth/24), (self.height * (TileWidth/16)) - 16 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24))
+            painter.drawLine(QtCore.QLineF(lineX, 20 * (TileWidth/24), lineX, (self.height * (TileWidth/16)) - 20 * (TileWidth/24)))
+            painter.drawEllipse(QtCore.QRectF(lineX - 4 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24)))
+            painter.drawEllipse(QtCore.QRectF(lineX - 4 * (TileWidth/24), (self.height * (TileWidth/16)) - 16 * (TileWidth/24), 8 * (TileWidth/24), 8 * (TileWidth/24)))
 
 
 class AuxiliaryCircleOutline(AuxiliarySpriteItem):
@@ -557,11 +808,7 @@ class AuxiliaryCircleOutline(AuxiliarySpriteItem):
         self.width = width
 
     def paint(self, painter, option, widget=None):
-
-        if option is not None:
-            painter.setClipRect(option.exposedRect)
-            painter.setRenderHint(QtGui.QPainter.Antialiasing)
-
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
         painter.setPen(OutlinePen)
         painter.setBrush(OutlineBrush)
         painter.drawEllipse(self.BoundingRect)
@@ -586,14 +833,10 @@ class AuxiliaryRotationAreaOutline(AuxiliarySpriteItem):
         self.spanAngle = spanAngle * 16
 
     def paint(self, painter, option, widget=None):
-
-        if option is not None:
-            painter.setClipRect(option.exposedRect)
-            painter.setRenderHint(QtGui.QPainter.Antialiasing)
-
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
         painter.setPen(OutlinePen)
         painter.setBrush(OutlineBrush)
-        painter.drawPie(self.BoundingRect, self.startAngle, self.spanAngle)
+        painter.drawPie(self.BoundingRect, round(self.startAngle), round(self.spanAngle))
 
 
 class AuxiliaryRectOutline(AuxiliarySpriteItem):
@@ -872,7 +1115,7 @@ class AuxiliaryLocationItem(AuxiliaryItem, QtWidgets.QGraphicsItem):
     def setIsBehindLocation(self, behind):
         """
         This allows you to choose whether the auiliary item will display
-        behind the zone or in front of it. Default is for the item to
+        behind the location or in front of it. Default is for the item to
         be in front of the location.
         """
         self.setFlag(QtWidgets.QGraphicsItem.ItemStacksBehindParent, behind)
@@ -882,11 +1125,15 @@ class AuxiliaryLocationItem(AuxiliaryItem, QtWidgets.QGraphicsItem):
         Resets the position and size of the AuxiliaryLocationItem to that of the location
         """
         self.setPos(0, 0)
-        self.setSize(self.parent.width(), self.parent.height())
+
+        if self.parent is None:
+            self.setSize(TileWidth, TileWidth)
+        else:
+            self.setSize(self.parent.width(), self.parent.height())
 
     def boundingRect(self):
         """
         Required for Qt
         """
-        return self.BoundingRect
+        return self.BoundingRect if self.parent is None else self.parent.boundingRect()
 

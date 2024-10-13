@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Miyamoto! Level Editor - New Super Mario Bros. U Level Editor
-# Copyright (C) 2009-2020 Treeki, Tempus, angelsl, JasonP27, Kinnay,
+# Copyright (C) 2009-2021 Treeki, Tempus, angelsl, JasonP27, Kinnay,
 # MalStar1000, RoadrunnerWMC, MrRean, Grop, AboodXD, Gota7, John10v10,
 # mrbengtsson
 
@@ -124,7 +124,7 @@ class MiyamotoTranslation:
                 35: 'Unknown Value 6:',
                 36: 'Timer 2:',
                 37: 'Timer 3:',
-                38: '[b]Timer 2 & 3:[/b]This time limit is chosen by the nybble 12 on sprite 25, Checkpoint Flag. See sprite for details.',                
+                38: '[b]Timer 2 & 3:[/b]This time limit is chosen by the nybble 12 on sprite 25, Checkpoint Flag. See sprite for details.',
                 39: '[b]Entrance ID 2:[/b][br]Sets the entrance ID to load into when loading from the Coin Battle or Boost Rush menu',
                 40: 'Unknown Option 1',
                 41: '[b]Unknown Option 1:[/b] We haven\'t managed to figure out what this does, or if it does anything. This option is turned off in most levels.',
@@ -295,6 +295,14 @@ class MiyamotoTranslation:
             'Err_Save': {
                 0: 'Error',
                 1: 'Error while Miyamoto was trying to save the level:[br](#[err1]) [err2][br][br](Your work has not been saved! Try saving it under a different filename or in a different folder.)',
+                2: 'Warning',
+                3: 'The level internal size exceeded 70 MB, which is the maximum capacity the game can handle.[br]'
+                   'It is recommended to make the level smaller to prevent the game from crashing.[br]'
+                   'This can be done by doing some of the following:[br]'
+                   '- Deleting all instances of some sprites.[br]'
+                   '- Having less areas.[br]'
+                   '- Having less used tiles per area.[br]'
+                   '- Not using RGBA8 for tilesets.[br]',
                 },
             'FileDlgs': {
                 0: 'Choose a level archive',
@@ -530,6 +538,8 @@ class MiyamotoTranslation:
                 147: 'Raise selected objects to the front of all other objects in the scene.',
                 148: 'Lower to Bottom',
                 149: 'Lower selected objects behind all other objects in the scene.',
+                150: 'Preview Pivotal Rotation',
+                151: 'Toggle previewing of pivotal rotation with sprite images',
                 },
             'Objects': {
                 0: '[b]Tileset [tileset], object [obj]:[/b][br][width]x[height] on layer [layer]',
@@ -657,7 +667,8 @@ class MiyamotoTranslation:
                 41: '8',
                 42: '9: Best',
                 43: 'Split Embedded tab:',
-                44: 'Modify Internal Name:',
+                44: None,
+                45: 'Pivotal Rotation Preview FPS:',
                 },
             'QuickPaint': {
                 1: "WOAH! Watch out!",
@@ -872,7 +883,7 @@ class MiyamotoTranslation:
                 18: '[b]Preset:[/b][br]Snaps the zone to common sizes.[br]The number before each entry specifies which zoom level works best with each size.',
                 19: 'Rendering and Camera',
                 20: 'Zone Theme:',
-                21: '[b]Zone Theme:[/b][br]Completely useless because it\'s automatically determined by the background.\nChanges the way models and parts of the background are rendered (for blurring, darkness, lava effects, and so on). Themes with * next to them are used in the game, but look the same as the overworld theme.',
+                21: '[b]Zone Theme:[/b][br]Completely useless because it\'s automatically determined by the background.[br]Changes the way models and parts of the background are rendered (for blurring, darkness, lava effects, and so on). Themes with * next to them are used in the game, but look the same as the overworld theme.',
                 22: 'Terrain Lighting:',
                 23: '[b]Terrain Lighting:[/b][br]Changes the way the terrain is rendered. It also affects the parts of the background which the Zone Theme doesn\'t change.',
                 24: 'Normal',
@@ -894,13 +905,14 @@ class MiyamotoTranslation:
                     'Right and Up',
                     'Left and Down',
                     'Left and Up',
-                    'Right and Down 2',
-                    'Right and Up 2',
-                    'Right and Down 3',
-                    'Right and Up 3',
+                    'Down and Right',
+                    'Down and Left',
+                    'Up and Right',
+                    'Up and Left',
+                    'Right and Right',
                     ),
                 39: 'Camera Tracking:',
-                40: '[b]Camera Tracking:[/b][br]This setting makes changes to camera tracking during multiplayer mode.[br]It prioritizes these directions when players goes in the wrong direction.[br]For example if you are making a tower level where the primary objective is going up[br]and you don\'t want the screen going back down if just one player falls,[br]then set the tracking to any value containing \'Up\' and that will prevent that from happening.',
+                40: '[b]Camera Tracking:[/b][br]This setting makes changes to camera tracking during multiplayer mode.[br]It prioritizes these directions when players goes in the wrong direction.[br]For example if you are making a tower level where the primary objective is going up[br]and you don\'t want the screen going back down if just one player falls,[br]then set the tracking to any value containing \'Up\' and that will prevent that from happening.[br]The order of the directions is unique. Priority is most given to the first direction and the second direction is less strict.',
                 41: 'Hidden',
                 42: '[b]Visibility:[/b][br]Hidden - Mario is hidden when moving behind objects on Layer 0.[br][br]Note: Entities behind layer 0 other than Mario are never visible.',
                 43: (
@@ -919,9 +931,9 @@ class MiyamotoTranslation:
                 46: '[b]Visibility:[/b][br]Large Foglight - A large, organic lightsource surrounds Mario[br]Lightbeam - Mario is able to aim a conical lightbeam through use of the Wiimote[br]Large Focus Light - A large spotlight which changes size based upon player movement[br]Small Foglight - A small, organic lightsource surrounds Mario[br]Small Focuslight - A small spotlight which changes size based on player movement[br]Absolute Black - Visibility is provided only by fireballs, stars, and certain sprites',
                 47: 'Bounds',
                 48: 'Upper Bounds:',
-                49: '[b]Upper Bounds:[/b][br] - Positive Values: Easier to scroll upwards (110 is centered)[br] - Negative Values: Harder to scroll upwards (30 is the top edge of the screen)[br][br]Values higher than 240 can cause instant death upon screen scrolling',
+                49: '[b]Upper Bounds:[/b][br]Controls the maximum distance magnitude the player can be at from the top edge of the screen to move the camera upwards. One block = 16 units.[br][br]Values "0" and less (negative values) make scrolling upwards impossible.[br]Higher positive values mean it is easier to scroll upwards.[br]Lower positive values mean it is harder to scroll upwards.[br][br]Very high values (larger than the screen height) with a low positive "Lower Bounds" value cause instant death.',
                 50: 'Lower Bounds:',
-                51: '[b]Lower Bounds:[/b][br] - Positive Values: Harder to scroll downwards (65 is the bottom edge of the screen)[br] - Negative Values: Easier to scroll downwards (95 is centered)[br][br]Values higher than 100 will prevent the scene from scrolling until Mario is offscreen',
+                51: '[b]Lower Bounds:[/b][br]Controls the maximum distance magnitude the player can be at from the bottom edge of the screen to move the camera downwards. One block = 16 units.[br][br]Values "0" and less (negative values) do NOT make scrolling downwards impossible.[br]Higher positive values mean it is easier to scroll downwards.[br]Lower positive values mean it is harder to scroll downwards.[br][br]Very high values (larger than the screen height) with a low positive "Upper Bounds" value make scrolling upwards impossible.',
                 52: 'Audio',
                 53: 'Background Music:',
                 54: '[b]Background Music:[/b][br]Changes the background music',
@@ -956,15 +968,15 @@ class MiyamotoTranslation:
                 67: 'No tracking mode is consistently glitchy.',
                 68: 'Background Music ID:',
                 69: '[b]Background Music ID:[/b][br]This advanced option allows custom music tracks to be loaded if the proper ASM hacks are in place.',
-                70: 'Upper Bounds 2:',
-                71: '[b]Upper Bounds 2:[/b][br]Unknown differences from the main upper bounds.',
-                72: 'Lower Bounds 2:',
-                73: '[b]Lower Bounds 2:[/b][br]Unknown differences from the main lower bounds.',
-                74: 'Enable Scrolling vertically?',
-                75: '[b]Enable Scrolling vertically?:[/b][br]The level can\'t scroll vertically if this is not checked Seems to be always checked.',
-                76: 'Flags',
+                70: 'Lakitu Upper Bounds:',
+                71: '[b]Lakitu Upper Bounds:[/b][br]Used instead of Upper Bounds when at least one player is riding a Lakitu cloud.',
+                72: 'Lakitu Lower Bounds:',
+                73: '[b]Lakitu Lower Bounds:[/b][br]Used instead of Lower Bounds when at least one player is riding a Lakitu cloud.',
+                74: 'Enable Upward Scrolling:',
+                75: '[b]Enable Upward Scrolling:[/b][br]If not checked and "Multiplayer Screen Height Adjust" is set to value "0", the screen won\'t scroll upwards unless the player uses a Propeller Suit or Block. Always checked in the retail game.',
+                76: 'Rendering and Camera Flags',
                 77: (
-                    'Start Zoomed Out:',
+                    'Start Zoom as Screen Height:[br](No initial zoom out/in)',
                     'Center Camera X-pos On Load:',
                     'Camera Follows on Y-axis:',
                     'Camera Stops At Zone End:',
@@ -977,6 +989,7 @@ class MiyamotoTranslation:
                 79: 'Snap to 16x16 Grid',
                 80: 'Small / Small Focus Light',
                 81: '[b]Visibility:[/b][br]Small - A small, centered spotlight affords visibility through layer 0.[br]Small Focuslight - A small spotlight which changes size based on player movement.',
+                82: 'Clone',
                 },
             'Zones': {
                 0: 'Zone [num]',
@@ -1143,8 +1156,31 @@ class MiyamotoTranslation:
         """
         Returns a list of strings
         """
-        try: return self.strings[section][numcode]
-        except Exception: return ('MiyamotoTranslation.stringList() ERROR:', section, numcode)
+        try:
+            strings = self.strings[section][numcode]
+        except Exception:
+            return ('MiyamotoTranslation.stringList() ERROR:', section, numcode)
+
+        strings = list(strings)
+
+        for i in range(len(strings)):
+            # Do some automatic replacements
+            replace = {
+                '[br]': '<br>',
+                '[b]': '<b>',
+                '[/b]': '</b>',
+                '[i]': '<i>',
+                '[/i]': '</i>',
+                '[a': '<a',
+                '"]': '">', # workaround
+                '[/a]': '</a>',
+                '\\n': '\n',
+                '//n': '\n',
+                }
+            for old in replace:
+                strings[i] = strings[i].replace(old, replace[old])
+
+        return tuple(strings)
 
     def path(self, key):
         """

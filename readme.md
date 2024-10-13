@@ -33,8 +33,7 @@ GitHub: https://github.com/aboood40091/Miyamoto
   
 #### Others
 * Gota7 -- Spritedata, Testing on Linux
-* Grop -- Sprite images offset fixes from RNM4
-* Gregory Haskins -- Gibberish
+* Hiccup -- Spritedata, Sprite Categories
 * libtxc_dxtn -- Original DXT5 (De)compressor in C
 * Meorge -- Testing on macOS
 * NVIDIA -- NVCOMPRESS

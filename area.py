@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # Miyamoto! Level Editor - New Super Mario Bros. U Level Editor
-# Copyright (C) 2009-2020 Treeki, Tempus, angelsl, JasonP27, Kinnay,
+# Copyright (C) 2009-2021 Treeki, Tempus, angelsl, JasonP27, Kinnay,
 # MalStar1000, RoadrunnerWMC, MrRean, Grop, AboodXD, Gota7, John10v10,
 # mrbengtsson
 
@@ -40,14 +40,18 @@ from items import NabbitPathItem, CommentItem
 from loading import LoadTileset
 from misc import Metadata
 import spritelib as SLib
-from tileset import generateTilesetNames
+from structures import Structures, GetFormat as GetStructureFormat
 
 #################################
 
 
+SID = Structures
+FMT = GetStructureFormat
+
+
 class AbstractArea:
     """
-    An extremely basic abstract area. Implements the basic function API.
+    Base abstract NSMBU area with only basic data loaded.
     """
 
     def __init__(self):
@@ -72,7 +76,7 @@ class AbstractArea:
         Loads self.blocks from the course file
         """
         self.blocks = [None] * 15
-        getblock = struct.Struct('>II')
+        getblock = struct.Struct(FMT(SID.CourseBlock))
         for i in range(15):
             data = getblock.unpack_from(course, i * 8)
             if data[1] == 0:
@@ -92,28 +96,29 @@ class AbstractArea:
         self.tileset2 = bytes_to_string(data[2])
         self.tileset3 = bytes_to_string(data[3])
 
-        if self.tileset0 not in globals.szsData:
-            ret = False
-            if self.tileset0 in globals.Pa0Tilesets:
-                reply = QtWidgets.QMessageBox.question(globals.mainWindow, 'Warning',
-                                                       '"%s" tileset was not found in the level data!\n' \
-                                                       'Do you want to load the default one from miyamotoextras?' % self.tileset0,
-                                                       QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No)
+        if not globals.IsNSMBUDX:
+            if self.tileset0 not in globals.szsData:
+                ret = False
+                if self.tileset0 in globals.Pa0Tilesets:
+                    reply = QtWidgets.QMessageBox.question(globals.mainWindow, 'Warning',
+                                                           '"%s" tileset was not found in the level data!\n' \
+                                                           'Do you want to load the default one from miyamotoextras?' % self.tileset0,
+                                                           QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No)
 
-                if reply == QtWidgets.QMessageBox.Yes:
-                    ret = globals.mainWindow.LoadDefaultTileset(self.tileset0, dirty=True)
+                    if reply == QtWidgets.QMessageBox.Yes:
+                        ret = globals.mainWindow.LoadDefaultTileset(self.tileset0, dirty=True)
 
-            if not ret:
-                self.tileset0 = ''
+                if not ret:
+                    self.tileset0 = ''
 
-        if self.tileset1 not in globals.szsData:
-            self.tileset1 = ''
+            if self.tileset1 not in globals.szsData:
+                self.tileset1 = ''
 
-        if self.tileset2 not in globals.szsData:
-            self.tileset2 = ''
+            if self.tileset2 not in globals.szsData:
+                self.tileset2 = ''
 
-        if self.tileset3 not in globals.szsData:
-            self.tileset3 = ''
+            if self.tileset3 not in globals.szsData:
+                self.tileset3 = ''
 
     def LoadBackgrounds(self):
         """
@@ -122,7 +127,7 @@ class AbstractArea:
         bgData = self.blocks[4]
         bgCount = len(bgData) // 28
 
-        bgStruct = struct.Struct('>HHHH16sxBxx')
+        bgStruct = struct.Struct(FMT(SID.Background))
         offset = 0
 
         bgs = {}
@@ -140,7 +145,7 @@ class AbstractArea:
         """
         spritedata = self.blocks[7]
         sprcount = len(spritedata) // 24
-        sprstruct = struct.Struct('>HHHHIIBB2sBxxx')
+        sprstruct = struct.Struct(FMT(SID.Sprite))
         offset = 0
         sprites = []
 
@@ -159,7 +164,7 @@ class AbstractArea:
 
 class Area_NSMBU(AbstractArea):
     """
-    Class for a parsed NSMBU level area
+    Class for a completely parsed NSMBU level area
     """
 
     def __init__(self):
@@ -178,8 +183,7 @@ class Area_NSMBU(AbstractArea):
         self.tileset3 = ''
 
         self.blocks = [b''] * 15
-        self.blocks[4] = (to_bytes(0, 8) + to_bytes(0x426C61636B, 5)
-                          + to_bytes(0, 15))
+        self.blocks[4] = b'\0' * 8 + b'Black' + b'\0' * 15
 
         # Settings
         self.eventBits32 = 0
@@ -212,9 +216,7 @@ class Area_NSMBU(AbstractArea):
         self.LoadMiyamotoInfo(None)
 
         # BG data
-        self.bgs = {}
-        bg = struct.unpack('>HHHH16sxBxx', self.blocks[4])
-        self.bgs[bg[0]] = bg
+        self.bgs = self.LoadBackgrounds()
 
     def load(self, course, L0, L1, L2, progress=None):
         """
@@ -306,7 +308,7 @@ class Area_NSMBU(AbstractArea):
 
         course = bytearray()
         for i in range(FileLength): course.append(0)
-        saveblock = struct.Struct('>II')
+        saveblock = struct.Struct(FMT(SID.CourseBlock))
 
         HeaderOffset = 0
         FileOffset = (15 * 8) + len(rdata)
@@ -342,27 +344,12 @@ class Area_NSMBU(AbstractArea):
         """
         Sorts the sprite list by zone ID so it will work in-game
         """
+        def compKey(zonelist, sprite):
+            id = SLib.MapPositionToZoneID(zonelist, sprite.objx, sprite.objy)
+            sprite.zoneID = zonelist[id].id if id != -1 else -1
+            return id
 
-        split = {}
-        zones = []
-
-        f_MapPositionToZoneID = SLib.MapPositionToZoneID
-        zonelist = self.zones
-
-        for sprite in self.sprites:
-            zone = f_MapPositionToZoneID(zonelist, sprite.objx, sprite.objy)
-            sprite.zoneID = zone
-            if not zone in split:
-                split[zone] = []
-                zones.append(zone)
-            split[zone].append(sprite)
-
-        newlist = []
-        zones.sort()
-        for z in zones:
-            newlist += split[z]
-
-        self.sprites = newlist
+        self.sprites.sort(key=lambda sprite: compKey(self.zones, sprite))
 
     def LoadMiyamotoInfo(self, data):
         if (data is None) or (len(data) == 0):
@@ -379,7 +366,7 @@ class Area_NSMBU(AbstractArea):
         Loads block 2, the general options
         """
         optdata = self.blocks[1]
-        optstruct = struct.Struct('>IIHHxBBBBxxBHH')
+        optstruct = struct.Struct(FMT(SID.Options))
         offset = 0
         data = optstruct.unpack_from(optdata, offset)
         self.eventBits32, self.eventBits64, wrapByte, self.timelimit, unk1, unk2, unk3, self.startEntrance, self.startEntranceCoinBoost, self.timelimit2, self.timelimit3 = data
@@ -395,7 +382,7 @@ class Area_NSMBU(AbstractArea):
         """
         entdata = self.blocks[6]
         entcount = len(entdata) // 24
-        entstruct = struct.Struct('>HHhhBBBBBBxBHBBBBBx')
+        entstruct = struct.Struct(FMT(SID.Entrance))
         offset = 0
         entrances = []
         for i in range(entcount):
@@ -412,12 +399,12 @@ class Area_NSMBU(AbstractArea):
         # Block 3 - bounding data
         bdngdata = self.blocks[2]
         count = len(bdngdata) // 28
-        bdngstruct = struct.Struct('>llllHHxxxxxxxx')
+        bdngstruct = struct.Struct(FMT(SID.Boundings))
         offset = 0
         bounding = []
         for i in range(count):
             datab = bdngstruct.unpack_from(bdngdata, offset)
-            bounding.append([datab[0], datab[1], datab[2], datab[3], datab[4], datab[5]])
+            bounding.append([datab[0], datab[1], datab[2], datab[3], datab[4], datab[5], datab[6], datab[7]])
             offset += 28
         self.bounding = bounding
 
@@ -426,7 +413,7 @@ class Area_NSMBU(AbstractArea):
 
         # Block 10 - zone data
         zonedata = self.blocks[9]
-        zonestruct = struct.Struct('>HHHHHHBBBBxBBxBxBBxBxx')
+        zonestruct = struct.Struct(FMT(SID.Zone))
         count = len(zonedata) // 28
         offset = 0
         zones = []
@@ -440,13 +427,15 @@ class Area_NSMBU(AbstractArea):
                 if checkb[4] == zoneBoundId: boundObj = checkb
 
             # Find the proper bg
-            bgObj = self.bgs[dataz[11]]
+            zoneBgId = dataz[12]
+            bgObj = self.bgs[zoneBgId] if zoneBgId in self.bgs else None
 
             zones.append(ZoneItem(
                 dataz[0], dataz[1], dataz[2], dataz[3],
                 dataz[4], dataz[5], dataz[6], dataz[7],
                 dataz[8], dataz[9], dataz[10], dataz[11],
                 dataz[12], dataz[13], dataz[14], dataz[15],
+                dataz[16], dataz[17], dataz[18], dataz[19],
                 boundObj, bgObj, i))
             offset += 28
         self.zones = zones
@@ -456,7 +445,7 @@ class Area_NSMBU(AbstractArea):
         Loads block 11, the locations
         """
         locdata = self.blocks[10]
-        locstruct = struct.Struct('>HHHHBxxx')
+        locstruct = struct.Struct(FMT(SID.Location))
         count = len(locdata) // 12
         offset = 0
         locations = []
@@ -471,7 +460,7 @@ class Area_NSMBU(AbstractArea):
         Loads a specific object layer from a bytes object
         """
         objcount = len(layerdata) // 16
-        objstruct = struct.Struct('>HhhHHB')
+        objstruct = struct.Struct(FMT(SID.LayerObject))
         offset = 0
         z = (2 - idx) * 8192
 
@@ -500,7 +489,7 @@ class Area_NSMBU(AbstractArea):
         """
         pathdata = self.blocks[13]
         pathcount = len(pathdata) // 12
-        pathstruct = struct.Struct('>BbHHHxxxx')
+        pathstruct = struct.Struct(FMT(SID.Path))
         offset = 0
         unpack = pathstruct.unpack_from
         pathinfo = []
@@ -549,7 +538,7 @@ class Area_NSMBU(AbstractArea):
         """
         ret = []
         nodedata = self.blocks[14]
-        nodestruct = struct.Struct('>HHffhHBBBx')
+        nodestruct = struct.Struct(FMT(SID.PathNode))
         offset = startindex * 20
         unpack = nodestruct.unpack_from
         for i in range(count):
@@ -569,7 +558,7 @@ class Area_NSMBU(AbstractArea):
         """
         ret = []
         nodedata = self.blocks[14]
-        nodestruct = struct.Struct('>HHffhHBBBx')
+        nodestruct = struct.Struct(FMT(SID.PathNode))
         offset = startindex * 20
         unpack = nodestruct.unpack_from
         for i in range(count):
@@ -625,17 +614,6 @@ class Area_NSMBU(AbstractArea):
         """
         Saves the tileset names back to block 1
         """
-        if not isNewArea and (globals.TilesetEdited or globals.OverrideTilesetSaving):
-            tilesetNames = generateTilesetNames()
-            if self.tileset1:
-                self.tileset1 = tilesetNames[0]
-
-            if self.tileset2:
-                self.tileset2 = tilesetNames[1]
-
-            if self.tileset3:
-                self.tileset3 = tilesetNames[2]
-
         self.blocks[0] = ''.join(
             [self.tileset0.ljust(32, '\0'), self.tileset1.ljust(32, '\0'), self.tileset2.ljust(32, '\0'),
              self.tileset3.ljust(32, '\0')]).encode('latin-1')
@@ -650,7 +628,7 @@ class Area_NSMBU(AbstractArea):
         unk2 = 100 if self.unkFlag3 else 0
         unk3 = 100 if self.unkFlag4 else 0
 
-        optstruct = struct.Struct('>IIHHxBBBBxxBHH')
+        optstruct = struct.Struct(FMT(SID.Options))
         buffer = bytearray(0x18)
         optstruct.pack_into(buffer, 0, self.eventBits32, self.eventBits64, wrapByte, self.timelimit,
                             unk1, unk2, unk3, self.startEntrance, self.startEntranceCoinBoost, self.timelimit2, self.timelimit3)
@@ -666,7 +644,7 @@ class Area_NSMBU(AbstractArea):
         layer.sort(key=lambda obj: obj.zValue())
 
         offset = 0
-        objstruct = struct.Struct('>HhhHHB')
+        objstruct = struct.Struct(FMT(SID.LayerObject))
         buffer = bytearray((len(layer) * 16) + 2)
         f_int = int
         for obj in layer:
@@ -688,11 +666,12 @@ class Area_NSMBU(AbstractArea):
         Saves the entrances back to block 7
         """
         offset = 0
-        entstruct = struct.Struct('>HHhhBBBBBBxBHBBBBBx')
+        entstruct = struct.Struct(FMT(SID.Entrance))
         buffer = bytearray(len(self.entrances) * 24)
+        f_MapPositionToZoneID = SLib.MapPositionToZoneID
         zonelist = self.zones
         for entrance in self.entrances:
-            zoneID = SLib.MapPositionToZoneID(zonelist, entrance.objx, entrance.objy)
+            zoneID = f_MapPositionToZoneID(zonelist, entrance.objx, entrance.objy, True)
             try:
                 entstruct.pack_into(buffer, offset, int(entrance.objx), int(entrance.objy), int(entrance.camerax),
                                     int(entrance.cameray), int(entrance.entid), int(entrance.destarea), int(entrance.destentrance),
@@ -711,7 +690,7 @@ class Area_NSMBU(AbstractArea):
         """
         Saves the paths back to block 14 and 15
         """
-        pathstruct = struct.Struct('>BbHHHxxxx')
+        pathstruct = struct.Struct(FMT(SID.Path))
         nodecount = 0
         for path in self.pathdata:
             nodecount += len(path['nodes'])
@@ -743,8 +722,8 @@ class Area_NSMBU(AbstractArea):
 
             self.WritePathNodes(nodebuffer, nodeoffset, path['nodes'])
 
-            pathstruct.pack_into(buffer, offset, int(path['id']), 0, int(nodeindex), int(len(path['nodes'])),
-                                 2 if path['loops'] else 0)
+            pathstruct.pack_into(buffer, offset, int(path['id']), int(path['unk1']), int(nodeindex),
+                                 int(len(path['nodes'])), 2 if path['loops'] else 0)
             offset += 12
             nodeoffset += len(path['nodes']) * 20
             nodeindex += len(path['nodes'])
@@ -766,7 +745,7 @@ class Area_NSMBU(AbstractArea):
         """
         offset = int(offst)
 
-        nodestruct = struct.Struct('>HHffhHBBBx')
+        nodestruct = struct.Struct(FMT(SID.PathNode))
         for node in nodes:
             nodestruct.pack_into(buffer, offset, int(node['x']), int(node['y']), float(node['speed']),
                                  float(node['accel']), int(node['delay']), 0, 0, 0, 0)
@@ -778,7 +757,7 @@ class Area_NSMBU(AbstractArea):
         """
         offset = int(offst)
 
-        nodestruct = struct.Struct('>HHffhHBBBx')
+        nodestruct = struct.Struct(FMT(SID.PathNode))
         for node in nodes:
             nodestruct.pack_into(buffer, offset, int(node['x']), int(node['y']), 0.0,
                                  0.0, int(node['action']), int(node['unk1']), int(node['unk2']),
@@ -790,19 +769,18 @@ class Area_NSMBU(AbstractArea):
         Saves the sprites back to block 8
         """
         offset = 0
-        sprstruct = struct.Struct('>HHHHIIBB2sBxxx')
+        sprstruct = struct.Struct(FMT(SID.Sprite))
         buffer = bytearray((len(self.sprites) * 24) + 4)
         f_int = int
         for sprite in self.sprites:
-            zoneID = SLib.MapPositionToZoneID(self.zones, sprite.objx, sprite.objy, True)
             try:
                 sprstruct.pack_into(buffer, offset, f_int(sprite.type), f_int(sprite.objx), f_int(sprite.objy),
                                     struct.unpack(">H", sprite.spritedata[:2])[0], struct.unpack(">I", sprite.spritedata[2:6])[0], struct.unpack(">I", sprite.spritedata[6:10])[0],
-                                    zoneID, sprite.layer, sprite.spritedata[10:], sprite.initialState)
+                                    sprite.zoneID, sprite.layer, sprite.spritedata[10:], sprite.initialState)
             except struct.error:
                 # Hopefully this will solve the mysterious bug, and will
                 # soon no longer be necessary.
-                if zoneID < 0:
+                if sprite.zoneID < 0:
                     raise ValueError('Sprite %d at (%d, %d) is too far from any zone\'s boundaries!\nPlease place it near a zone.' % (sprite.type, sprite.objx, sprite.objy)) from None
                 else:
                     raise ValueError('SaveSprites struct.error. Current sprite data dump:\n' + \
@@ -811,7 +789,7 @@ class Area_NSMBU(AbstractArea):
                                      str(sprite.objx) + '\n' + \
                                      str(sprite.objy) + '\n' + \
                                      str(sprite.spritedata[:10]) + '\n' + \
-                                     str(zoneID) + '\n' + \
+                                     str(sprite.zoneID) + '\n' + \
                                      str(sprite.layer) + '\n' + \
                                      str(sprite.spritedata[10:]) + '\n' + \
                                      str(sprite.initialState) + '\n',
@@ -833,7 +811,7 @@ class Area_NSMBU(AbstractArea):
         ls.sort()
 
         offset = 0
-        sprstruct = struct.Struct('>Hxx')
+        sprstruct = struct.Struct(FMT(SID.LoadedSprite))
         buffer = bytearray(len(ls) * 4)
         for s in ls:
             sprstruct.pack_into(buffer, offset, int(s))
@@ -844,57 +822,57 @@ class Area_NSMBU(AbstractArea):
         """
         Saves blocks 10, 3, and 5; the zone data, boundings, and background data respectively
         """
-        bdngstruct = struct.Struct('>llllHHxxxxxxxx')
-        bgStruct = struct.Struct('>HHHH16sxBxx')
-        zonestruct = struct.Struct('>HHHHHHBBBBxBBxBxBBxBxx')
+        bdngstruct = struct.Struct(FMT(SID.Boundings))
+        bgStruct = struct.Struct(FMT(SID.Background))
+        zonestruct = struct.Struct(FMT(SID.Zone))
         offset = 0
-        bdngs, bdngcount = self.GetOptimizedBoundings()
-        bgs, bgcount = self.GetOptimizedBGs()
-        zcount = len(globals.Area.zones)
+        bdngs, bdngcount = self.GetOptimizedBoundings(bdngstruct)
+        bgs, bgcount = self.GetOptimizedBGs(bgStruct)
+        zcount = len(self.zones)
         buffer2 = bytearray(28 * bdngcount)
         buffer4 = bytearray(28 * bgcount)
         buffer9 = bytearray(28 * zcount)
-        for z in globals.Area.zones:
+        for z in self.zones:
             if z.objx < 0: z.objx = 0
             if z.objy < 0: z.objy = 0
             bounding = bdngs[z.id]
             bdngstruct.pack_into(buffer2, bounding[4] * 28, bounding[0], bounding[1], bounding[2], bounding[3], bounding[4],
-                                 bounding[5])
+                                 bounding[5], bounding[6], bounding[7])
             background = bgs[z.id]
             bgStruct.pack_into(buffer4, background[0] * 28, background[0], background[1], background[2], background[3],
                                background[4], background[5])
             zonestruct.pack_into(buffer9, offset,
                                  z.objx, z.objy, z.width, z.height,
                                  0, 0, z.id, bounding[4],
-                                 z.cammode, z.camzoom, z.visibility, background[0],
-                                 z.camtrack, z.music, z.sfxmod, z.type)
+                                 z.cammode, z.camzoom, z.unk1, z.visibility,
+                                 background[0], z.unk2, z.camtrack, z.unk3,
+                                 z.music, z.sfxmod, 0, z.type)
             offset += 28
 
         self.blocks[2] = bytes(buffer2)
         self.blocks[4] = bytes(buffer4)
         self.blocks[9] = bytes(buffer9)
 
-    def GetOptimizedBoundings(self):
+    def GetOptimizedBoundings(self, bdngstruct):
         bdngs = {}
-        bdngstruct = struct.Struct('>llllHHxxxxxxxx')
-        for z in globals.Area.zones:
-            bdng = bdngstruct.pack(z.yupperbound, z.ylowerbound, z.yupperbound2, z.ylowerbound2, 0, z.unknownbnf)
+        for z in self.zones:
+            bdng = bdngstruct.pack(z.yupperbound, z.ylowerbound, z.yupperbound2, z.ylowerbound2, 0, z.mpcamzoomadjust, z.yupperbound3, z.ylowerbound3)
             if bdng not in bdngs:
                 bdngs[bdng] = []
             bdngs[bdng].append(z.id)
         bdngs = sorted(bdngs.items(), key=lambda kv: min(kv[1]))
         oBdngs = {}
         for i, bdng in enumerate(bdngs):
-            for z in globals.Area.zones:
+            for z in self.zones:
                 if z.id in bdng[1]:
-                    oBdngs[z.id] = *bdngstruct.unpack(bdng[0])[:4], i, bdngstruct.unpack(bdng[0])[5]
+                    uBdng = bdngstruct.unpack(bdng[0])
+                    oBdngs[z.id] = *uBdng[:4], i, *uBdng[5:]
 
         return oBdngs, len(bdngs)
 
-    def GetOptimizedBGs(self):
+    def GetOptimizedBGs(self, bgStruct):
         bgs = {}
-        bgStruct = struct.Struct('>HHHH16sxBxx')
-        for z in globals.Area.zones:
+        for z in self.zones:
             bg = bgStruct.pack(0, z.background[1], z.background[2], z.background[3], z.background[4], z.background[5])
             if bg not in bgs:
                 bgs[bg] = []
@@ -902,9 +880,10 @@ class Area_NSMBU(AbstractArea):
         bgs = sorted(bgs.items(), key=lambda kv: min(kv[1]))
         oBgs = {}
         for i, bg in enumerate(bgs):
-            for z in globals.Area.zones:
+            for z in self.zones:
                 if z.id in bg[1]:
-                    oBgs[z.id] = i, *bgStruct.unpack(bg[0])[1:]
+                    uBdng = bgStruct.unpack(bg[0])
+                    oBgs[z.id] = i, *uBdng[1:]
 
         return oBgs, len(bgs)
 
@@ -912,12 +891,12 @@ class Area_NSMBU(AbstractArea):
         """
         Saves block 11, the location data
         """
-        locstruct = struct.Struct('>HHHHBxxx')
+        locstruct = struct.Struct(FMT(SID.Location))
         offset = 0
-        zcount = len(globals.Area.locations)
+        zcount = len(self.locations)
         buffer = bytearray(12 * zcount)
 
-        for z in globals.Area.locations:
+        for z in self.locations:
             locstruct.pack_into(buffer, offset, int(z.objx), int(z.objy), int(z.width), int(z.height), int(z.id))
             offset += 12
 
